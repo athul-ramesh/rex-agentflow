@@ -1,9 +1,12 @@
-// Pi extension: pipe subagent/tool lifecycle into `agentflow hook` (Cursor-shaped JSON).
+// Pi extension: emit native agentflow contract NDJSON via `agentflow ingest`.
 // @ts-nocheck
 
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
+
+const CONTRACT_VERSION = 1;
+const HARNESS = "pi";
 
 const IGNORED_TOOLS = new Set([
 	"bash",
@@ -25,12 +28,11 @@ function resolveAgentflowBin(): string {
 	if (typeof fromEnv === "string" && fromEnv.trim()) {
 		return fromEnv.trim();
 	}
-	// Absolute path so host-side hook spawn does not depend on Pi's PATH.
 	return join(homedir(), ".local", "bin", "agentflow");
 }
 
-function hookArgs(): string[] {
-	const args = ["hook"];
+function ingestArgs(): string[] {
+	const args = ["ingest"];
 	const graph = process.env.AGENTFLOW_GRAPH;
 	if (typeof graph === "string" && graph.trim()) {
 		args.unshift("--graph", graph.trim());
@@ -39,23 +41,16 @@ function hookArgs(): string[] {
 }
 
 /** Fire-and-forget: never block Pi tool execution on agentflow. */
-function emitHook(payload: Record<string, unknown>): void {
-	let json: string;
-	try {
-		json = JSON.stringify(payload);
-	} catch {
-		return;
-	}
-
+function emitContract(payload: Record<string, unknown>): void {
+	const line = JSON.stringify({ v: CONTRACT_VERSION, harness: HARNESS, ...payload });
 	const bin = resolveAgentflowBin();
-	const child = spawn(bin, hookArgs(), {
+	const child = spawn(bin, ingestArgs(), {
 		stdio: ["pipe", "ignore", "ignore"],
 		env: process.env,
 	});
-	child.stdin.write(json);
+	child.stdin.write(`${line}\n`);
 	child.stdin.end();
 	child.unref?.();
-
 	child.on("error", () => {
 		/* fail open */
 	});
@@ -89,13 +84,33 @@ function isDelegationLaunch(toolName: string, input: Record<string, unknown>): b
 		if (hasAgent || hasTask || hasWorkflow) {
 			return true;
 		}
-		// Management-only subagent calls (status, guide, validate, …) are not workers.
 		if (action) {
 			return false;
 		}
 		return hasAgent || hasTask || hasWorkflow;
 	}
 	return true;
+}
+
+/**
+ * Background/async launches: the launch tool's `tool_result` arrives while the child still runs.
+ * Pi-subagents exposes this via `async: true` on `subagent` / `subagent_launch` input.
+ * Workflow hosts (`workflow: true`) run children inside the parent; treat them as synchronous unless `async` is set.
+ */
+function isBackgroundLaunch(toolName: string, input: Record<string, unknown>): boolean {
+	if (!isDelegationLaunch(toolName, input)) {
+		return false;
+	}
+	if (input.async === true) {
+		return true;
+	}
+	if (toolName === "subagent" || toolName === "subagent_launch") {
+		const action = typeof input.action === "string" ? input.action.trim().toLowerCase() : "";
+		if (action === "spawn" || action === "runs.run") {
+			return input.async !== false;
+		}
+	}
+	return false;
 }
 
 function workerKind(toolName: string, input: Record<string, unknown>): string {
@@ -130,6 +145,24 @@ function workerTitle(toolName: string, input: Record<string, unknown>): string {
 	return "subagent";
 }
 
+function workerRef(event, input: Record<string, unknown>) {
+	const id = event.toolCallId;
+	const ref = {
+		id,
+		tool_call_id: id,
+		kind: workerKind(event.toolName, input),
+		title: workerTitle(event.toolName, input),
+	};
+	const parent =
+		typeof event.parentToolCallId === "string" && event.parentToolCallId.trim()
+			? event.parentToolCallId.trim()
+			: "";
+	if (parent) {
+		ref.parent_id = parent;
+	}
+	return ref;
+}
+
 function firstTextLine(content: unknown[]): string {
 	for (const part of content) {
 		if (part && typeof part === "object" && part.type === "text") {
@@ -149,7 +182,6 @@ function shouldTrack(ctx): boolean {
 	if (ctx?.mode === "tui") {
 		return true;
 	}
-	// Headless / RPC still feed the graph when a graph or Rex block is named.
 	if (process.env.AGENTFLOW_ENABLE === "1") {
 		return true;
 	}
@@ -162,11 +194,34 @@ function shouldTrack(ctx): boolean {
 	return false;
 }
 
+function sessionIdFrom(ctx): string {
+	try {
+		const id = ctx?.sessionManager?.getSessionId?.();
+		if (typeof id === "string" && id.trim()) {
+			return id.trim();
+		}
+	} catch {
+		/* fail open */
+	}
+	return "";
+}
+
 export default function (pi) {
 	let rootSession = false;
+	let boundSessionId = "";
+	/** Launch toolCallIds that returned before the delegated worker finished (async subagent). */
+	const backgroundLaunches = new Set();
 
 	pi.on("session_start", (_event, ctx) => {
 		rootSession = shouldTrack(ctx);
+		if (!rootSession) {
+			return;
+		}
+		const sid = sessionIdFrom(ctx);
+		if (sid) {
+			boundSessionId = sid;
+			emitContract({ type: "session.bind", session_id: sid });
+		}
 	});
 
 	pi.on("tool_call", (event) => {
@@ -177,14 +232,14 @@ export default function (pi) {
 		if (!isDelegationLaunch(event.toolName, input)) {
 			return;
 		}
+		if (isBackgroundLaunch(event.toolName, input)) {
+			backgroundLaunches.add(event.toolCallId);
+		}
 
-		emitHook({
-			hook_event_name: "subagentStart",
-			subagent_id: event.toolCallId,
-			tool_call_id: event.toolCallId,
-			subagent_type: workerKind(event.toolName, input),
-			task: workerTitle(event.toolName, input),
-			tool_name: event.toolName,
+		emitContract({
+			type: "worker.start",
+			session_id: boundSessionId || undefined,
+			worker: { ...workerRef(event, input), state: "working" },
 		});
 	});
 
@@ -203,28 +258,38 @@ export default function (pi) {
 		}
 
 		const summary = firstTextLine(event.content ?? []);
-		emitHook({
-			hook_event_name: "subagentStop",
-			subagent_id: event.toolCallId,
-			tool_call_id: event.toolCallId,
-			status: event.isError ? "error" : "finished",
-			summary,
-			tool_name: event.toolName,
-		});
+		const status = event.isError ? "error" : "finished";
+		const base = {
+			session_id: boundSessionId || undefined,
+			status,
+			msg: summary || undefined,
+			worker: workerRef(event, input),
+		};
+
+		if (backgroundLaunches.has(event.toolCallId)) {
+			backgroundLaunches.delete(event.toolCallId);
+			emitContract({ type: "tool.return", ...base });
+			return;
+		}
+
+		emitContract({ type: "worker.stop", ...base });
 	});
 
-	const emitAgentStop = () => {
+	const emitSessionEnd = () => {
 		if (!rootSession) {
 			return;
 		}
-		emitHook({ hook_event_name: "stop" });
+		emitContract({
+			type: "session.end",
+			session_id: boundSessionId || undefined,
+		});
 	};
 
-	pi.on("agent_settled", emitAgentStop);
+	pi.on("agent_settled", emitSessionEnd);
 	pi.on("agent_end", (_event, ctx) => {
 		if (ctx?.isIdle?.() === true) {
-			emitAgentStop();
+			emitSessionEnd();
 		}
 	});
-	pi.on("session_shutdown", emitAgentStop);
+	pi.on("session_shutdown", emitSessionEnd);
 }
