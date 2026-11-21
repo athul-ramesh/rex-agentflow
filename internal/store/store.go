@@ -25,7 +25,7 @@ func StateDir() string {
 }
 
 func GraphPath(name string) string {
-	return filepath.Join(StateDir(), safeName(name)+".json")
+	return filepath.Join(StateDir(), FileKey(name)+".json")
 }
 
 func graphLockPath(name string) string {
@@ -33,7 +33,7 @@ func graphLockPath(name string) string {
 }
 
 func ViewerPath(name string) string {
-	return filepath.Join(StateDir(), safeName(name)+".viewer")
+	return filepath.Join(StateDir(), FileKey(name)+".viewer")
 }
 
 func safeName(name string) string {
@@ -131,6 +131,7 @@ func WithGraph(name string, harness string, fn func(*graph.WorkGraph) error) err
 func Clear(name string) error {
 	return withFileLock(name, func() error {
 		_ = os.Remove(ViewerPath(name))
+		_ = os.Remove(placePath(name))
 		err := os.Remove(GraphPath(name))
 		if err != nil && !os.IsNotExist(err) {
 			return err
