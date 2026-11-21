@@ -30,7 +30,6 @@ type streamLine struct {
 	Model string `json:"model"`
 }
 
-// ProcessStream reads NDJSON until EOF, applying events to g (in-memory; tests).
 func ProcessStream(g *graph.WorkGraph, r io.Reader, onChange func() error) error {
 	if g.Harness == "" {
 		g.Harness = StreamHarness
@@ -76,7 +75,6 @@ func toolNameFromPayload(raw json.RawMessage) string {
 	return ""
 }
 
-// ProcessStreamLocked reloads the graph under lock for each applied line.
 func ProcessStreamLocked(name string, r io.Reader, onChange func() error) error {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)

@@ -7,7 +7,6 @@ import (
 	"github.com/athulramesh/rex-agentflow/internal/contract"
 )
 
-// TranslateHook maps one Cursor hook JSON object to contract events.
 func TranslateHook(raw []byte) ([]contract.Event, error) {
 	var p hookPayload
 	if err := json.Unmarshal(raw, &p); err != nil {
@@ -123,7 +122,6 @@ func TranslateHook(raw []byte) ([]contract.Event, error) {
 	return nil, nil
 }
 
-// TranslateStreamLine maps one NDJSON stream line to contract events.
 func TranslateStreamLine(line []byte) ([]contract.Event, bool) {
 	var ev streamLine
 	if err := json.Unmarshal(line, &ev); err != nil {

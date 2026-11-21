@@ -8,7 +8,6 @@ import (
 	"github.com/athulramesh/rex-agentflow/internal/graph"
 )
 
-// TranslateHook maps one Claude Code hook JSON object to contract events.
 func TranslateHook(raw []byte) ([]contract.Event, error) {
 	var p hookPayload
 	if err := json.Unmarshal(raw, &p); err != nil {

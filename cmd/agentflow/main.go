@@ -130,7 +130,6 @@ func main() {
 			_ = osc7501.WriteGraph(os.Stdout, g)
 		}
 	case "claude-hook":
-		// Claude reserves stdout for hook decision JSON. Never emit OSC here.
 		raw, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -143,7 +142,6 @@ func main() {
 			os.Exit(1)
 		}
 	case "devin-hook":
-		// Devin reserves stdout for hook decision JSON. Never emit OSC here.
 		raw, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)

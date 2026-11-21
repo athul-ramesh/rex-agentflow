@@ -1,9 +1,4 @@
-// Package claude maps Claude Code hook JSON to the shared contract.Event stream.
-//
-// Claude hook commands must reserve stdout for hook decision JSON (permission,
-// continue, additionalContext). ApplyHook never writes OSC or other graph output
-// to stdout. Keep AGENTFLOW_OSC unset when agentflow runs inside Claude hooks;
-// push Rex status with agentflow emit-osc in a separate step.
+// Claude hook commands reserve stdout for hook decision JSON; do not emit OSC from ApplyHook.
 package claude
 
 import (
@@ -30,7 +25,6 @@ type hookPayload struct {
 	Source               string `json:"source"`
 }
 
-// ApplyHook updates g from one Claude Code hook JSON object. Unknown events are no-ops.
 func ApplyHook(g *graph.WorkGraph, raw []byte) error {
 	evs, err := TranslateHook(raw)
 	if err != nil {

@@ -1,14 +1,4 @@
-// Package devin maps Devin CLI hook JSON to the shared contract.Event stream.
-//
-// Devin may also load hooks from .claude/ when read_config_from.claude is enabled
-// (the default). This adapter is Devin-specific (session_id, prompt_id, PascalCase
-// hook_event_name values). Use .devin/hooks.v1.json with agentflow devin-hook so
-// agentflow does not compete with Claude-oriented hook wiring.
-//
-// Devin hook commands must reserve stdout for hook decision JSON (approve/block,
-// additionalContext, updatedInput). ApplyHook never writes OSC or other graph
-// output to stdout. Keep AGENTFLOW_OSC unset when agentflow runs inside Devin hooks;
-// push Rex status with agentflow emit-osc in a separate step.
+// Devin hook commands reserve stdout for hook decision JSON; do not emit OSC from ApplyHook.
 package devin
 
 import (
@@ -35,7 +25,6 @@ type hookPayload struct {
 	ToolName string `json:"tool_name"`
 }
 
-// ApplyHook updates g from one Devin CLI hook JSON object. Unknown events are no-ops.
 func ApplyHook(g *graph.WorkGraph, raw []byte) error {
 	evs, err := TranslateHook(raw)
 	if err != nil {

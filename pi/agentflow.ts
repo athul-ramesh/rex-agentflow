@@ -1,4 +1,3 @@
-// Pi extension: emit native agentflow contract NDJSON via `agentflow ingest`.
 // @ts-nocheck
 
 import { spawn } from "node:child_process";
@@ -195,13 +194,19 @@ function shouldTrack(ctx): boolean {
 }
 
 function sessionIdFrom(ctx): string {
+	const sm = ctx?.sessionManager;
+	const getId = sm?.getSessionId;
+	if (typeof getId !== "function") {
+		return "";
+	}
+	let id;
 	try {
-		const id = ctx?.sessionManager?.getSessionId?.();
-		if (typeof id === "string" && id.trim()) {
-			return id.trim();
-		}
+		id = getId.call(sm);
 	} catch {
-		/* fail open */
+		return "";
+	}
+	if (typeof id === "string" && id.trim()) {
+		return id.trim();
 	}
 	return "";
 }
@@ -209,7 +214,6 @@ function sessionIdFrom(ctx): string {
 export default function (pi) {
 	let rootSession = false;
 	let boundSessionId = "";
-	/** Launch toolCallIds that returned before the delegated worker finished (async subagent). */
 	const backgroundLaunches = new Set();
 
 	pi.on("session_start", (_event, ctx) => {

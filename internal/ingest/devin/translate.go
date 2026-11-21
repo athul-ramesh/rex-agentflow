@@ -8,7 +8,15 @@ import (
 	"github.com/athulramesh/rex-agentflow/internal/graph"
 )
 
-// TranslateHook maps one Devin CLI hook JSON object to contract events.
+// ignoredDevinHooks are documented Devin events that do not update the graph
+// (no stable worker identity in the hook payload).
+var ignoredDevinHooks = map[string]struct{}{
+	"permissionrequest": {},
+	"pretooluse":        {},
+	"posttooluse":       {},
+	"postcompaction":    {},
+}
+
 func TranslateHook(raw []byte) ([]contract.Event, error) {
 	var p hookPayload
 	if err := json.Unmarshal(raw, &p); err != nil {
@@ -21,8 +29,12 @@ func TranslateHook(raw []byte) ([]contract.Event, error) {
 	if name == "" {
 		return nil, nil
 	}
+	key := hookKey(name)
+	if _, skip := ignoredDevinHooks[key]; skip {
+		return nil, nil
+	}
 
-	switch hookKey(name) {
+	switch key {
 	case "sessionstart":
 		title := strings.TrimSpace(p.Source)
 		if title == "" {
@@ -53,7 +65,7 @@ func TranslateHook(raw []byte) ([]contract.Event, error) {
 
 	case "stop", "sessionend":
 		title := strings.TrimSpace(p.Reason)
-		if title == "" && hookKey(name) == "stop" {
+		if title == "" && key == "stop" {
 			title = "stopped"
 		}
 		if title == "" {
@@ -63,11 +75,6 @@ func TranslateHook(raw []byte) ([]contract.Event, error) {
 			V: contract.Version, Type: contract.EventSessionEnd, Harness: Harness,
 			SessionID: p.SessionID, RunID: p.PromptID, Title: title, Msg: p.Reason,
 		}}, nil
-
-	// Permission and tool hooks are diagnostic/audit only for agentflow; they do
-	// not carry stable subagent identity in Devin's documented stdin fields.
-	case "permissionrequest", "pretooluse", "posttooluse", "postcompaction":
-		return nil, nil
 	}
 	return nil, nil
 }
