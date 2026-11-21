@@ -1,0 +1,6 @@
+{
+  "session_id": "sess-parallel",
+  "hook_event_name": "SubagentStart",
+  "agent_id": "agent-gp-1",
+  "agent_type": "general-purpose"
+}

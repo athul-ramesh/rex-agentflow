@@ -1,0 +1,7 @@
+{
+  "session_id": "sess-parallel",
+  "hook_event_name": "SubagentStop",
+  "agent_id": "agent-gp-1",
+  "agent_type": "general-purpose",
+  "last_assistant_message": "Refactor complete."
+}
