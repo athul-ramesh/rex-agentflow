@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/athulramesh/rex-agentflow/internal/graph"
 )
@@ -24,6 +26,10 @@ func StateDir() string {
 
 func GraphPath(name string) string {
 	return filepath.Join(StateDir(), safeName(name)+".json")
+}
+
+func graphLockPath(name string) string {
+	return GraphPath(name) + ".lock"
 }
 
 func ViewerPath(name string) string {
@@ -64,48 +70,77 @@ func Load(name string) (graph.WorkGraph, error) {
 	return g, nil
 }
 
-func Save(name string, g *graph.WorkGraph) error {
+func writeGraphFile(path string, g *graph.WorkGraph) error {
 	graph.Normalize(g)
 	if err := graph.Validate(g); err != nil {
-		return err
-	}
-	dir := StateDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(g, "", "  ")
 	if err != nil {
 		return err
 	}
-	path := GraphPath(name)
-	tmp := path + ".tmp"
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp := fmt.Sprintf("%s.%d.%d.tmp", path, os.Getpid(), time.Now().UnixNano())
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
 }
 
-func Clear(name string) error {
-	_ = os.Remove(ViewerPath(name))
-	err := os.Remove(GraphPath(name))
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
+func Save(name string, g *graph.WorkGraph) error {
+	return writeGraphFile(GraphPath(name), g)
 }
 
-func Modify(name string, harness string, fn func(*graph.WorkGraph) error) error {
-	g, err := Load(name)
+func withFileLock(name string, fn func() error) error {
+	if err := os.MkdirAll(StateDir(), 0o755); err != nil {
+		return err
+	}
+	lockPath := graphLockPath(name)
+	lf, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return err
 	}
-	if g.Harness == "" && harness != "" {
-		g.Harness = harness
-	}
-	if err := fn(&g); err != nil {
+	defer lf.Close()
+	if err := syscall.Flock(int(lf.Fd()), syscall.LOCK_EX); err != nil {
 		return err
 	}
-	return Save(name, &g)
+	defer func() { _ = syscall.Flock(int(lf.Fd()), syscall.LOCK_UN) }()
+	return fn()
+}
+
+// WithGraph flock-locks the graph, loads the latest state, runs fn, and saves atomically.
+func WithGraph(name string, harness string, fn func(*graph.WorkGraph) error) error {
+	return withFileLock(name, func() error {
+		g, err := Load(name)
+		if err != nil {
+			return err
+		}
+		if g.Harness == "" && harness != "" {
+			g.Harness = harness
+		}
+		if err := fn(&g); err != nil {
+			return err
+		}
+		return writeGraphFile(GraphPath(name), &g)
+	})
+}
+
+func Clear(name string) error {
+	return withFileLock(name, func() error {
+		_ = os.Remove(ViewerPath(name))
+		err := os.Remove(GraphPath(name))
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	})
+}
+
+func Modify(name string, harness string, fn func(*graph.WorkGraph) error) error {
+	return WithGraph(name, harness, fn)
 }
 
 func FileModTime(name string) (int64, error) {

@@ -43,4 +43,7 @@ func Normalize(g *WorkGraph) {
 	if g.Workers == nil {
 		g.Workers = []Worker{}
 	}
+	if g.Diagnostics == nil {
+		g.Diagnostics = []Diagnostic{}
+	}
 }

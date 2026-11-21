@@ -34,14 +34,22 @@ type Worker struct {
 	Kind     string `json:"kind,omitempty"`
 }
 
+type Diagnostic struct {
+	Code string    `json:"code"`
+	Msg  string    `json:"msg,omitempty"`
+	At   time.Time `json:"at"`
+}
+
 type WorkGraph struct {
-	Version   int        `json:"version"`
-	RunID     string     `json:"run_id"`
-	Harness   string     `json:"harness"`
-	Title     string     `json:"title,omitempty"`
-	Plan      []PlanItem `json:"plan,omitempty"`
-	Workers   []Worker   `json:"workers"`
-	UpdatedAt time.Time  `json:"updated_at"`
+	Version     int               `json:"version"`
+	RunID       string            `json:"run_id"`
+	Harness     string            `json:"harness"`
+	Title       string            `json:"title,omitempty"`
+	Plan        []PlanItem        `json:"plan,omitempty"`
+	Workers     []Worker          `json:"workers"`
+	Correlation map[string]string `json:"correlation,omitempty"`
+	Diagnostics []Diagnostic      `json:"diagnostics,omitempty"`
+	UpdatedAt   time.Time         `json:"updated_at"`
 }
 
 func New(harness string) WorkGraph {

@@ -1,0 +1,7 @@
+{
+  "session_id": "sess-parallel",
+  "hook_event_name": "SubagentStop",
+  "agent_id": "agent-explore-1",
+  "agent_type": "Explore",
+  "last_assistant_message": "Mapped 12 packages."
+}

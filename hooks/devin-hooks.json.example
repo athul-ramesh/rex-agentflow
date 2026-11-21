@@ -1,0 +1,47 @@
+{
+  "_readme": "Copy to .devin/hooks.v1.json. Devin may also load .claude/ hooks by default; use this file so agentflow ingests Devin session_id/prompt_id only.",
+  "SessionStart": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "agentflow devin-hook"
+        }
+      ]
+    }
+  ],
+  "UserPromptSubmit": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "agentflow devin-hook"
+        }
+      ]
+    }
+  ],
+  "Stop": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "agentflow devin-hook"
+        }
+      ]
+    }
+  ],
+  "SessionEnd": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "agentflow devin-hook"
+        }
+      ]
+    }
+  ]
+}

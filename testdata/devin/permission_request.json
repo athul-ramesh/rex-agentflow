@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "PermissionRequest",
+  "session_id": "devin-sess-1",
+  "prompt_id": "turn-aaa",
+  "tool_name": "exec",
+  "tool_input": {
+    "command": "git status"
+  }
+}

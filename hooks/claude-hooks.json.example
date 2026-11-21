@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "agentflow claude-hook"
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "type": "command",
+        "command": "agentflow claude-hook"
+      }
+    ],
+    "SubagentStart": [
+      {
+        "type": "command",
+        "command": "agentflow claude-hook"
+      }
+    ],
+    "SubagentStop": [
+      {
+        "type": "command",
+        "command": "agentflow claude-hook"
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "agentflow claude-hook"
+      }
+    ],
+    "SessionEnd": [
+      {
+        "type": "command",
+        "command": "agentflow claude-hook"
+      }
+    ]
+  }
+}

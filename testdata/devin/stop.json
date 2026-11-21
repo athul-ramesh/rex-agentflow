@@ -1,0 +1,6 @@
+{
+  "hook_event_name": "Stop",
+  "session_id": "devin-sess-1",
+  "prompt_id": "turn-aaa",
+  "stop_hook_active": false
+}

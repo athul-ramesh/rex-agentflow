@@ -1,0 +1,6 @@
+{
+  "hook_event_name": "UserPromptSubmit",
+  "session_id": "devin-sess-1",
+  "prompt_id": "turn-aaa",
+  "prompt": "Ship devin hooks"
+}
