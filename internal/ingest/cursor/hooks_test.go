@@ -58,3 +58,48 @@ func TestSubagentStartLongTaskUsesKindTitle(t *testing.T) {
 		t.Fatalf("want task in msg, got %q", w.Msg)
 	}
 }
+
+func TestTwoSameKindWorkersReverseOrderStop(t *testing.T) {
+	g := graph.New(Harness)
+	start1 := []byte(`{"hook_event_name":"subagentStart","subagent_id":"w1","subagent_type":"explore","task":"first"}`)
+	start2 := []byte(`{"hook_event_name":"subagentStart","subagent_id":"w2","subagent_type":"explore","task":"second"}`)
+	stop2 := []byte(`{"hook_event_name":"subagentStop","subagent_id":"w2","subagent_type":"explore","status":"completed"}`)
+	stop1 := []byte(`{"hook_event_name":"subagentStop","subagent_id":"w1","subagent_type":"explore","status":"completed"}`)
+	for _, raw := range [][]byte{start1, start2, stop2, stop1} {
+		if err := ApplyHook(&g, raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, a := g.FindWorker("w1")
+	_, b := g.FindWorker("w2")
+	if a.State != graph.PhaseFinished || b.State != graph.PhaseFinished {
+		t.Fatalf("w1=%s w2=%s", a.State, b.State)
+	}
+}
+
+func TestToolCallIDThenSubagentIDSameRow(t *testing.T) {
+	g := graph.New(Harness)
+	pre := []byte(`{"hook_event_name":"preToolUse","tool_name":"Task","tool_call_id":"call-9","subagent_type":"explore"}`)
+	start := []byte(`{"hook_event_name":"subagentStart","subagent_id":"sub-9","subagent_type":"explore","tool_call_id":"call-9","task":"work"}`)
+	stop := []byte(`{"hook_event_name":"subagentStop","subagent_id":"sub-9","subagent_type":"explore","status":"completed"}`)
+	for _, raw := range [][]byte{pre, start, stop} {
+		if err := ApplyHook(&g, raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, byCall := g.FindWorker("call-9")
+	_, bySub := g.FindWorker("sub-9")
+	if byCall == nil && bySub == nil {
+		t.Fatalf("workers %+v", g.Workers)
+	}
+	finished := bySub
+	if finished == nil {
+		finished = byCall
+	}
+	if finished.State != graph.PhaseFinished {
+		t.Fatalf("state %s workers %+v", finished.State, g.Workers)
+	}
+	if g.Correlation["call-9"] != "sub-9" && g.Correlation["sub-9"] != "call-9" {
+		t.Fatalf("correlation %+v", g.Correlation)
+	}
+}

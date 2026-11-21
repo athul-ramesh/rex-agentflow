@@ -1,16 +1,20 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 
+	"github.com/athulramesh/rex-agentflow/internal/contract"
 	"github.com/athulramesh/rex-agentflow/internal/graph"
 	"github.com/athulramesh/rex-agentflow/internal/ingest/cursor"
 	"github.com/athulramesh/rex-agentflow/internal/osc7501"
 	"github.com/athulramesh/rex-agentflow/internal/pane"
+	"github.com/athulramesh/rex-agentflow/internal/reducer"
 	"github.com/athulramesh/rex-agentflow/internal/store"
 	"github.com/athulramesh/rex-agentflow/internal/view"
 )
@@ -19,7 +23,7 @@ func main() {
 	graphFlag := flag.String("graph", "", "graph name (default: $AGENTFLOW_GRAPH, then $REX_BLOCK, then default)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: agentflow [--graph NAME] COMMAND\n\n")
-		fmt.Fprintf(os.Stderr, "Commands: show, hide, view, get, set, clear, emit-osc, hook, stream\n")
+		fmt.Fprintf(os.Stderr, "Commands: show, hide, view, get, set, clear, emit-osc, hook, stream, ingest\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -85,7 +89,10 @@ func main() {
 			}
 		}
 		graph.Normalize(&g)
-		if err := store.Save(name, &g); err != nil {
+		if err := store.WithGraph(name, g.Harness, func(loaded *graph.WorkGraph) error {
+			*loaded = g
+			return nil
+		}); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -110,7 +117,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		if err := store.Modify(name, cursor.Harness, func(g *graph.WorkGraph) error {
+		if err := store.WithGraph(name, cursor.Harness, func(g *graph.WorkGraph) error {
 			return cursor.ApplyHook(g, raw)
 		}); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -124,23 +131,40 @@ func main() {
 		streamFlags := flag.NewFlagSet("stream", flag.ExitOnError)
 		doShow := streamFlags.Bool("show", false, "open viewer pane once if inside Rex")
 		_ = streamFlags.Parse(flag.Args()[1:])
-		g, err := store.Load(name)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		if g.Harness == "" {
-			g.Harness = cursor.StreamHarness
-		}
 		shown := false
-		if err := cursor.ProcessStream(&g, os.Stdin, func() error {
+		if err := cursor.ProcessStreamLocked(name, os.Stdin, func() error {
 			if *doShow && !shown && os.Getenv("REX_SERVER") != "" {
 				shown = true
 				self, _ := os.Executable()
 				_ = pane.Show(pane.ShowOptions{Graph: name, Binary: self, Ratio: 30})
 			}
-			return store.Save(name, &g)
+			return nil
 		}); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "ingest":
+		sc := bufio.NewScanner(os.Stdin)
+		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for sc.Scan() {
+			line := bytes.TrimSpace(sc.Bytes())
+			if len(line) == 0 {
+				continue
+			}
+			ev, err := contract.Parse(line)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			if err := store.WithGraph(name, ev.Harness, func(g *graph.WorkGraph) error {
+				reducer.Apply(g, ev)
+				return nil
+			}); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+		}
+		if err := sc.Err(); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

@@ -65,6 +65,9 @@ func Apply(g *graph.WorkGraph, ev contract.Event) []graph.Diagnostic {
 		g.UpsertWorker(w)
 		root := g.EnsureMainWorker()
 		root.State = graph.PhaseWorking
+		if w.Kind == "tool" && w.Title != "" {
+			root.Msg = w.Title
+		}
 
 	case contract.EventWorkerPatch:
 		id := resolveWorkerID(g, ev.Worker)
@@ -129,7 +132,18 @@ func Apply(g *graph.WorkGraph, ev contract.Event) []graph.Diagnostic {
 		if strings.EqualFold(ev.Status, "failed") || strings.EqualFold(ev.Status, "error") {
 			state = graph.PhaseError
 		}
-		g.SetWorkerState(id, state, graph.TruncateOneLine(ev.Msg, 120))
+		msg := graph.TruncateOneLine(ev.Msg, 120)
+		if msg == "" {
+			msg = graph.TruncateOneLine(ev.Worker.Msg, 120)
+		}
+		g.SetWorkerState(id, state, msg)
+		if state == graph.PhaseError {
+			main := g.EnsureMainWorker()
+			main.State = graph.PhaseError
+			if msg != "" {
+				main.Msg = msg
+			}
+		}
 
 	case contract.EventTurnSettle:
 		title := ev.Title
@@ -149,6 +163,9 @@ func Apply(g *graph.WorkGraph, ev contract.Event) []graph.Diagnostic {
 		}
 		main := g.EnsureMainWorker()
 		main.State = graph.PhaseFinished
+		if ev.Msg != "" {
+			main.Msg = graph.TruncateOneLine(ev.Msg, 120)
+		}
 		g.Touch()
 	}
 	return out
