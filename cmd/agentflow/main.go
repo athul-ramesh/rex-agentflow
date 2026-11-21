@@ -11,7 +11,9 @@ import (
 
 	"github.com/athulramesh/rex-agentflow/internal/contract"
 	"github.com/athulramesh/rex-agentflow/internal/graph"
+	"github.com/athulramesh/rex-agentflow/internal/ingest/claude"
 	"github.com/athulramesh/rex-agentflow/internal/ingest/cursor"
+	"github.com/athulramesh/rex-agentflow/internal/ingest/devin"
 	"github.com/athulramesh/rex-agentflow/internal/osc7501"
 	"github.com/athulramesh/rex-agentflow/internal/pane"
 	"github.com/athulramesh/rex-agentflow/internal/reducer"
@@ -23,7 +25,7 @@ func main() {
 	graphFlag := flag.String("graph", "", "graph name (default: $AGENTFLOW_GRAPH, then $REX_BLOCK, then default)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: agentflow [--graph NAME] COMMAND\n\n")
-		fmt.Fprintf(os.Stderr, "Commands: show, hide, view, get, set, clear, emit-osc, hook, stream, ingest\n")
+		fmt.Fprintf(os.Stderr, "Commands: show, hide, view, get, set, clear, emit-osc, hook, claude-hook, devin-hook, stream, ingest\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -126,6 +128,32 @@ func main() {
 		if os.Getenv("AGENTFLOW_OSC") == "1" {
 			g, _ := store.Load(name)
 			_ = osc7501.WriteGraph(os.Stdout, g)
+		}
+	case "claude-hook":
+		// Claude reserves stdout for hook decision JSON. Never emit OSC here.
+		raw, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if err := store.WithGraph(name, claude.Harness, func(g *graph.WorkGraph) error {
+			return claude.ApplyHook(g, raw)
+		}); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "devin-hook":
+		// Devin reserves stdout for hook decision JSON. Never emit OSC here.
+		raw, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if err := store.WithGraph(name, devin.Harness, func(g *graph.WorkGraph) error {
+			return devin.ApplyHook(g, raw)
+		}); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
 		}
 	case "stream":
 		streamFlags := flag.NewFlagSet("stream", flag.ExitOnError)

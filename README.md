@@ -1,6 +1,8 @@
 # rex-agentflow
 
-`agentflow` keeps a live **work graph** (plan + subagent workers) in an atomic JSON file, draws it in a Rex sibling pane with the Kitty graphics protocol, and maps Cursor agent events to Rex **OSC 7501** program status. It is shaped like [rexpad](https://github.com/almonk/rexpad): hooks update the graph, the agent opens the pane.
+`agentflow` keeps a live **work graph** (plan + subagent workers) in an atomic JSON file, draws it in a Rex sibling pane with the Kitty graphics protocol, and maps agent lifecycle events to Rex **OSC 7501** program status. It is shaped like [rexpad](https://github.com/almonk/rexpad): hooks update the graph, the agent opens the pane.
+
+Provider adapters (Cursor, Pi, Claude Code, Devin CLI) translate native payloads into a versioned NDJSON event contract. One reducer applies those events under a per-graph file lock.
 
 ## Requirements
 
@@ -91,7 +93,7 @@ cursor-agent -f --trust -p --output-format stream-json "your prompt" \
 
 ## Pi agent (optional)
 
-Same Cursor-shaped hook JSON via the TypeScript extension in this repo:
+The TypeScript extension emits native contract events on `agentflow ingest`:
 
 ```bash
 ln -sf "$PWD/pi/agentflow.ts" ~/.pi/agent/extensions/agentflow.ts
@@ -100,9 +102,37 @@ ln -sfn ~/.cursor/skills/agentflow ~/.pi/agent/skills/agentflow
 ```
 
 - `AGENTFLOW_BIN` overrides the binary (default `~/.local/bin/agentflow`).
-- When set, `AGENTFLOW_GRAPH` is passed as `--graph` on every hook call.
+- When set, `AGENTFLOW_GRAPH` is passed as `--graph` on every ingest call.
 - TUI sessions always track. Headless / RPC / print modes track when `REX_BLOCK`, `AGENTFLOW_GRAPH`, or `AGENTFLOW_ENABLE=1` is set.
 - Hardened Pi hosts need `agentflow` on PATH and FS grants for `~/.local/bin`, this repo’s `bin/`, and `~/.local/state/agentflow`. Restart Pi after changing those.
+- Sync delegation: `tool_call` → `worker.start`, `tool_result` → `worker.stop`. Background launch (`async: true`) emits `tool.return` on launch completion and leaves the worker working.
+
+## Claude Code (optional)
+
+```bash
+cp hooks/claude-hooks.json.example ~/.claude/settings.json   # merge into your settings
+```
+
+Wire hooks to `agentflow claude-hook`. Keep `AGENTFLOW_OSC` unset so Claude can use hook stdout for decision JSON. Push Rex status with `agentflow emit-osc` from the agent pane when needed. Correlation uses `session_id` and `agent_id`.
+
+## Devin CLI (optional)
+
+```bash
+cp hooks/devin-hooks.json.example .devin/hooks.v1.json   # adjust paths as needed
+```
+
+Wire hooks to `agentflow devin-hook`. Session-level support uses `session_id` and `prompt_id`. Worker-level subagent completion is not claimed yet. Devin may import Claude hooks by default. Prefer a Devin-specific hooks file so the two adapters do not fight. Keep `AGENTFLOW_OSC` unset for the same stdout reason as Claude.
+
+## Event contract
+
+Any process can publish newline-delimited JSON to `agentflow ingest`:
+
+```bash
+echo '{"v":1,"type":"worker.start","harness":"custom","session_id":"s1","worker":{"id":"w1","kind":"explore","title":"map APIs","state":"working"}}' \
+  | agentflow --graph demo ingest
+```
+
+Event types: `session.bind`, `worker.start`, `worker.patch`, `worker.stop`, `tool.return`, `turn.settle`, `session.end`. `tool.return` means the tool call finished. It is not the same as a long-running worker finishing (`worker.stop`).
 
 ## CLI
 
@@ -116,17 +146,20 @@ ln -sfn ~/.cursor/skills/agentflow ~/.pi/agent/skills/agentflow
 | `clear` | Remove graph (+ viewer sidecar) |
 | `emit-osc` | Print OSC 7501 for root + workers |
 | `hook` | Ingest one Cursor hook JSON object from stdin |
+| `claude-hook` | Ingest one Claude Code hook JSON object from stdin |
+| `devin-hook` | Ingest one Devin CLI hook JSON object from stdin |
 | `stream [--show]` | Ingest Cursor `stream-json` NDJSON until EOF |
+| `ingest` | Ingest NDJSON contract events until EOF |
 
 Global flag: `--graph NAME` (before the subcommand).
 
-### OSC on hook stdout
+### OSC on Cursor hook stdout
 
 ```bash
 export AGENTFLOW_OSC=1
 ```
 
-Or run `agentflow emit-osc` in the agent pane after hooks update the graph.
+Use this only with `agentflow hook` (Cursor). Claude and Devin hooks must leave stdout free. Or run `agentflow emit-osc` in the agent pane after hooks update the graph.
 
 ## Manual check
 
