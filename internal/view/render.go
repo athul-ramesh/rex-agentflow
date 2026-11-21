@@ -1,20 +1,18 @@
 package view
 
 import (
-	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
+	"math"
 
 	"github.com/athulramesh/rex-agentflow/internal/graph"
-	"golang.org/x/image/font"
-	"golang.org/x/image/font/basicfont"
-	"golang.org/x/image/math/fixed"
 )
 
 type palette struct {
 	bg, title, text, muted color.RGBA
 	working, blocked, finished, error, queued color.RGBA
+	divider, activeBg, check   color.RGBA
 }
 
 var darkPalette = palette{
@@ -27,6 +25,9 @@ var darkPalette = palette{
 	finished: color.RGBA{76, 175, 110, 255},
 	error:    color.RGBA{220, 80, 80, 255},
 	queued:   color.RGBA{120, 123, 130, 255},
+	divider:  color.RGBA{58, 60, 64, 255},
+	activeBg: color.RGBA{37, 49, 72, 255},
+	check:    color.RGBA{255, 255, 255, 255},
 }
 
 func phaseColor(p palette, ph graph.Phase) color.RGBA {
@@ -44,11 +45,22 @@ func phaseColor(p palette, ph graph.Phase) color.RGBA {
 	}
 }
 
+func mix(a, b color.RGBA, t float64) color.RGBA {
+	l := func(x, y uint8) uint8 { return uint8(math.Round(float64(x) + (float64(y)-float64(x))*t)) }
+	return color.RGBA{l(a.R, b.R), l(a.G, b.G), l(a.B, b.B), 255}
+}
+
 const (
-	marginX = 12
-	marginY = 10
-	lineH   = 18
-	indent  = 14
+	marginL     = 12.0
+	marginR     = 12.0
+	marginTop   = 14.0
+	itemPitch   = 28.0
+	wrapLineH   = 18.0
+	subLineH    = 16.0
+	iconCenterX = 8.0
+	textX       = 21.0
+	depthIndent = 14.0
+	activeInset = 6.0
 )
 
 // Render draws the work graph into a new RGBA image.
@@ -59,113 +71,88 @@ func Render(g graph.WorkGraph, width, height int) *image.RGBA {
 	if height < 80 {
 		height = 400
 	}
+	fs, err := getFonts()
+	if err != nil {
+		img := image.NewRGBA(image.Rect(0, 0, width, height))
+		draw.Draw(img, img.Bounds(), &image.Uniform{darkPalette.bg}, image.Point{}, draw.Src)
+		return img
+	}
+
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
-	p := darkPalette
-	draw.Draw(img, img.Bounds(), &image.Uniform{p.bg}, image.Point{}, draw.Src)
+	pal := darkPalette
+	draw.Draw(img, img.Bounds(), &image.Uniform{pal.bg}, image.Point{}, draw.Src)
 
-	y := marginY + lineH
-	drawString(img, p.title, marginX, y, titleOrDefault(g))
-	y += lineH + 6
+	tp := &textPainter{fonts: fs}
+	rows := buildLayout(g)
+	contentW := float64(width) - marginL - marginR
+	textLeft := marginL + textX
 
-	if len(g.Plan) > 0 {
-		drawString(img, p.muted, marginX, y, "Plan")
-		y += lineH
-		for _, item := range g.Plan {
-			mark := planMark(item.Status)
-			col := phaseColor(p, item.Status)
-			drawString(img, col, marginX, y, mark+" "+item.Text)
-			y += lineH
+	y := marginTop
+
+	for _, row := range rows {
+		switch row.Kind {
+		case rowTitle:
+			tp.draw(img, row.Text, marginL, y+baselineOff, true, fontSize, pal.title, 0)
+			y += 10
+			fillRect(img, marginL, y+6, float64(width)-marginR, y+7, pal.divider)
+			y += 24
+
+		case rowSection:
+			y += 4
+			tp.draw(img, row.Text, marginL, y+baselineOff, true, sectionSize, pal.muted, 0)
+			y += itemPitch - 4
+
+		case rowPlan, rowWorker:
+			gx := marginL + iconCenterX + float64(row.Depth)*depthIndent
+			tx := textLeft + float64(row.Depth)*depthIndent
+			maxW := contentW - float64(row.Depth)*depthIndent
+
+			lines := tp.wrapTitle(row.Text, false, fontSize, maxW, maxTitleLines)
+			subH := 0.0
+			if row.Sub != "" {
+				subH = subLineH
+			}
+			extra := float64(len(lines)-1) * wrapLineH
+			rowH := itemPitch + extra + subH
+			cy := y + itemPitch/2 + extra/2
+
+			if row.Active {
+				fillRoundRect(img, marginL-activeInset, cy-itemPitch/2+2, float64(width)-marginR+activeInset, cy+itemPitch/2-2+extra+subH, 6, pal.activeBg)
+			}
+
+			drawPhaseGlyph(img, pal, gx, cy, row.Phase, row.Progress)
+
+			col := pal.text
+			if row.Kind == rowWorker {
+				col = workerTextColor(pal, row.Phase)
+			} else if row.Phase == graph.PhaseFinished {
+				col = pal.muted
+			}
+
+			line0Y := cy - float64(len(lines)-1)*wrapLineH/2 + baselineOff
+			for i, line := range lines {
+				tp.draw(img, line, tx, line0Y+float64(i)*wrapLineH, false, fontSize, col, maxW)
+			}
+
+			if row.Sub != "" {
+				sy := line0Y + float64(len(lines))*wrapLineH - 6
+				tp.draw(img, row.Sub, tx, sy, false, subSize, pal.muted, maxW)
+			}
+
+			y += rowH
+
+		case rowEmpty:
+			tp.draw(img, row.Text, textLeft, y+baselineOff, false, fontSize, pal.muted, 0)
+			y += itemPitch
+
+		case rowFooter:
+			y += 10
+			fillRect(img, marginL, y, float64(width)-marginR, y+1, pal.divider)
+			y += 12
+			tp.draw(img, row.Text, marginL, y+baselineOff, false, subSize, pal.muted, 0)
+			y += itemPitch
 		}
-		y += 4
-	}
-
-	drawString(img, p.muted, marginX, y, "Workers")
-	y += lineH
-
-	roots := workersByParent(g.Workers, "")
-	for _, w := range roots {
-		y = drawWorkerTree(img, p, g.Workers, w, marginX, y, 0)
-	}
-	if len(g.Workers) == 0 {
-		drawString(img, p.muted, marginX, y, "(empty)")
 	}
 
 	return img
-}
-
-func titleOrDefault(g graph.WorkGraph) string {
-	if g.Title != "" {
-		return g.Title
-	}
-	if g.RunID != "" {
-		return "run " + truncate(g.RunID, 24)
-	}
-	return "agentflow"
-}
-
-func planMark(ph graph.Phase) string {
-	switch ph {
-	case graph.PhaseFinished:
-		return "[x]"
-	case graph.PhaseWorking:
-		return "[~]"
-	case graph.PhaseError:
-		return "[!]"
-	default:
-		return "[ ]"
-	}
-}
-
-func workersByParent(workers []graph.Worker, parent string) []graph.Worker {
-	var out []graph.Worker
-	for _, w := range workers {
-		if w.ParentID == parent {
-			out = append(out, w)
-		}
-	}
-	if parent == "" && len(out) == 0 {
-		return workers
-	}
-	return out
-}
-
-func drawWorkerTree(img *image.RGBA, p palette, all []graph.Worker, w graph.Worker, x, y, depth int) int {
-	col := phaseColor(p, w.State)
-	prefix := ""
-	for i := 0; i < depth; i++ {
-		prefix += "  "
-	}
-	label := fmt.Sprintf("%s● %s", prefix, w.Title)
-	if w.Kind != "" {
-		label += " (" + w.Kind + ")"
-	}
-	drawString(img, col, x+depth*indent, y, label)
-	y += lineH
-	if w.Msg != "" {
-		drawString(img, p.muted, x+depth*indent+8, y, truncate(w.Msg, 48))
-		y += lineH
-	}
-	for _, child := range workersByParent(all, w.ID) {
-		y = drawWorkerTree(img, p, all, child, x, y, depth+1)
-	}
-	return y
-}
-
-func drawString(img *image.RGBA, col color.RGBA, x, y int, s string) {
-	d := &font.Drawer{
-		Dst:  img,
-		Src:  image.NewUniform(col),
-		Face: basicfont.Face7x13,
-		Dot:  fixed.P(0, 0),
-	}
-	// basicfont baseline
-	d.Dot = fixed.P(x, y-2)
-	d.DrawString(s)
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
 }
