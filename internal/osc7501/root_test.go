@@ -49,3 +49,13 @@ func TestRootRecordAllFinishedNotWorking(t *testing.T) {
 		t.Fatalf("state %q", rec.State)
 	}
 }
+
+func TestRootIgnoresWorkingMainWhenChildrenFinished(t *testing.T) {
+	g := graph.New("x")
+	g.UpsertWorker(graph.Worker{ID: graph.MainWorkerID, State: graph.PhaseWorking})
+	g.UpsertWorker(graph.Worker{ID: "a", State: graph.PhaseFinished})
+	g.UpsertWorker(graph.Worker{ID: "b", State: graph.PhaseFinished})
+	if RootStatus(g) != "done" {
+		t.Fatalf("got %s", RootStatus(g))
+	}
+}

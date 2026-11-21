@@ -4,6 +4,9 @@ import "github.com/athulramesh/rex-agentflow/internal/graph"
 
 // RootStatus picks aggregate agent status from worker phases.
 // Priority: error > blocked > working > finished > idle/queued/aborted.
+// When non-main workers exist, only they drive working/blocked/error so a
+// synthetic main left at "working" cannot keep the root active after every
+// real worker has finished.
 func RootStatus(g graph.WorkGraph) string {
 	if len(g.Workers) == 0 {
 		return "idle"
@@ -29,16 +32,18 @@ func RootStatus(g graph.WorkGraph) string {
 			hasFinished = true
 		}
 	}
-	if _, main := g.FindWorker(graph.MainWorkerID); main != nil {
-		switch main.State {
-		case graph.PhaseError:
-			hasError = true
-		case graph.PhaseBlocked:
-			hasBlocked = true
-		case graph.PhaseWorking:
-			hasWorking = true
-		case graph.PhaseFinished:
-			hasFinished = true
+	if nonMain == 0 {
+		if _, main := g.FindWorker(graph.MainWorkerID); main != nil {
+			switch main.State {
+			case graph.PhaseError:
+				hasError = true
+			case graph.PhaseBlocked:
+				hasBlocked = true
+			case graph.PhaseWorking:
+				hasWorking = true
+			case graph.PhaseFinished:
+				hasFinished = true
+			}
 		}
 	}
 	if hasError {
