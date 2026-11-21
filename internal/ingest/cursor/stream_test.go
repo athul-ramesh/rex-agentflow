@@ -36,6 +36,31 @@ func TestStreamRunIDAndResult(t *testing.T) {
 	}
 }
 
+func TestStreamCursorCLIToolCallShape(t *testing.T) {
+	ndjson := strings.Join([]string{
+		`{"type":"system","subtype":"init","session_id":"sess-cli"}`,
+		`{"type":"tool_call","subtype":"started","call_id":"call-1","tool_call":{"readToolCall":{"args":{"path":"go.mod"}}}}`,
+		`{"type":"tool_call","subtype":"completed","call_id":"call-1","tool_call":{"readToolCall":{"args":{"path":"go.mod"}}}}`,
+		`{"type":"result","subtype":"success","result":"done"}`,
+	}, "\n")
+
+	g := graph.New(StreamHarness)
+	if err := ProcessStream(&g, strings.NewReader(ndjson), nil); err != nil {
+		t.Fatal(err)
+	}
+	_, w := g.FindWorker("call-1")
+	if w == nil {
+		t.Fatalf("workers=%+v", g.Workers)
+	}
+	if w.Title != "read" || w.State != graph.PhaseFinished {
+		t.Fatalf("worker %+v", w)
+	}
+	_, main := g.FindWorker(graph.MainWorkerID)
+	if main == nil || main.State != graph.PhaseFinished {
+		t.Fatalf("main %+v", main)
+	}
+}
+
 func TestStreamIgnoresGarbage(t *testing.T) {
 	var buf bytes.Buffer
 	buf.WriteString("not json\n")

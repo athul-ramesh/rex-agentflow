@@ -36,7 +36,8 @@ func viewerOpen(name string) (string, bool) {
 }
 
 func viewerCommand(self, graph string) []string {
-	view := []string{self, "view", "--graph", graph}
+	// Global flags must precede the subcommand (flag.Parse stops at the first arg).
+	view := []string{self, "--graph", graph, "view"}
 	var settings []string
 	for _, key := range []string{"XDG_STATE_HOME", "AGENTFLOW_GRAPH"} {
 		if value := os.Getenv(key); value != "" {

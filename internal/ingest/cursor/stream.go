@@ -18,10 +18,12 @@ type streamLine struct {
 	SessionID string `json:"session_id"`
 	RunID     string `json:"run_id"`
 
-	CallID string `json:"call_id"`
-	Name   string `json:"name"`
-	Status string `json:"status"`
-	Text   string `json:"text"`
+	CallID   string          `json:"call_id"`
+	Name     string          `json:"name"`
+	Status   string          `json:"status"`
+	Text     string          `json:"text"`
+	ToolCall json.RawMessage `json:"tool_call"`
+	Result   string          `json:"result"`
 
 	// legacy init line
 	Model string `json:"model"`
@@ -95,38 +97,86 @@ func applyStreamLine(g *graph.WorkGraph, line []byte) bool {
 		return true
 
 	case "tool_call":
-		main := g.EnsureMainWorker()
 		name := ev.Name
+		if name == "" {
+			name = toolNameFromPayload(ev.ToolCall)
+		}
 		if name == "" {
 			name = "tool"
 		}
-		switch strings.ToLower(ev.Status) {
-		case "running", "started", "in_progress", "":
-			main.State = graph.PhaseWorking
-			main.Msg = name
-			main.Title = "main"
-			g.Touch()
-		case "completed", "complete", "success":
-			main.Msg = name + " done"
-			if main.State == graph.PhaseWorking {
-				main.State = graph.PhaseWorking
-			}
-			g.Touch()
-		case "error", "failed":
-			main.State = graph.PhaseError
-			main.Msg = name + " failed"
-			g.Touch()
+		phase := strings.ToLower(ev.Status)
+		if phase == "" {
+			phase = strings.ToLower(ev.Subtype)
 		}
+		main := g.EnsureMainWorker()
+		main.State = graph.PhaseWorking
+		main.Msg = name
+		id := sanitizeWorkerID(ev.CallID)
+		if id == "" {
+			id = "tool-" + name
+		}
+		w := graph.Worker{ID: id, Title: name, Kind: "tool", State: graph.PhaseWorking, Msg: name}
+		switch phase {
+		case "running", "started", "in_progress", "":
+			w.State = graph.PhaseWorking
+		case "completed", "complete", "success":
+			w.State = graph.PhaseFinished
+			w.Msg = name + " done"
+		case "error", "failed":
+			w.State = graph.PhaseError
+			w.Msg = name + " failed"
+			main.State = graph.PhaseError
+			main.Msg = w.Msg
+		}
+		g.UpsertWorker(w)
+		g.Touch()
 		return true
 
 	case "result":
 		main := g.EnsureMainWorker()
 		main.State = graph.PhaseFinished
-		if ev.Text != "" {
-			main.Msg = graph.TruncateOneLine(ev.Text, 120)
+		msg := ev.Text
+		if msg == "" {
+			msg = ev.Result
+		}
+		if msg != "" {
+			main.Msg = graph.TruncateOneLine(msg, 120)
 		}
 		g.Touch()
 		return true
 	}
 	return false
+}
+
+func toolNameFromPayload(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(raw, &obj) != nil {
+		return ""
+	}
+	for key := range obj {
+		if strings.HasSuffix(key, "ToolCall") {
+			name := strings.TrimSuffix(key, "ToolCall")
+			if name == "" {
+				continue
+			}
+			return strings.ToLower(name[:1]) + name[1:]
+		}
+	}
+	return ""
+}
+
+func sanitizeWorkerID(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ""
+	}
+	id = strings.ReplaceAll(id, "\n", "-")
+	id = strings.ReplaceAll(id, "/", "-")
+	if len(id) > 48 {
+		id = id[:48]
+	}
+	return id
 }
