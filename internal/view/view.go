@@ -2,6 +2,7 @@ package view
 
 import (
 	"bufio"
+	"fmt"
 	"image"
 	"os"
 	"os/signal"
@@ -20,8 +21,15 @@ func Run(graphName string) error {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 
-	out := bufio.NewWriter(os.Stdout)
-	defer out.Flush()
+	out := bufio.NewWriterSize(os.Stdout, 1<<16)
+	// Alternate screen + hide cursor, matching rexpad so placements have a clean canvas.
+	fmt.Fprint(out, "\x1b[?1049h\x1b[?25l\x1b[H\x1b[2J")
+	_ = out.Flush()
+	defer func() {
+		kittyDelete(out, 1)
+		fmt.Fprint(out, "\x1b_Ga=d,d=A,q=2\x1b\\\x1b[?25h\x1b[?1049l")
+		_ = out.Flush()
+	}()
 
 	fd := int(os.Stdout.Fd())
 	ws := getWinSize(fd)
@@ -42,17 +50,17 @@ func Run(graphName string) error {
 		kittyDelete(out, imgID)
 		kittyUpload(out, img, imgID)
 		kittyPlace(out, imgID, 0, img.Bounds().Dx(), img.Bounds().Dy(), ws.cols, ws.rows)
-		out.Flush()
-		_ = g
+		_ = out.Flush()
 	}
 
+	if mod, err := store.FileModTime(graphName); err == nil {
+		lastMod = mod
+	}
 	redraw()
 
 	for {
 		select {
 		case <-sig:
-			kittyDelete(out, imgID)
-			out.Flush()
 			return nil
 		case <-ticker.C:
 			mod, err := store.FileModTime(graphName)
@@ -61,6 +69,7 @@ func Run(graphName string) error {
 			}
 			if mod != lastMod {
 				lastMod = mod
+				ws = getWinSize(fd)
 				redraw()
 			}
 		}
