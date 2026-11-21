@@ -92,32 +92,23 @@ func workerRecord(w graph.Worker) Record {
 }
 
 func rootRecord(g graph.WorkGraph) Record {
-	state := graph.PhaseWorking
-	hasWorking := false
-	for _, w := range g.Workers {
-		switch w.State {
-		case graph.PhaseWorking, graph.PhaseBlocked:
-			hasWorking = true
-			state = w.State
-		case graph.PhaseError:
-			state = graph.PhaseError
-		}
-	}
 	title := g.Title
 	if title == "" {
 		title = "agent"
 	}
 	msg := ""
-	if hasWorking {
-		for _, w := range g.Workers {
-			if w.State == graph.PhaseWorking && w.Msg != "" {
-				msg = w.Msg
-				break
-			}
+	for _, w := range g.Workers {
+		if w.State == graph.PhaseWorking && w.Msg != "" {
+			msg = w.Msg
+			break
 		}
 	}
+	st := RootStatus(g)
+	if st == "done" {
+		st = "done"
+	}
 	return Record{
-		State: OSCState(state),
+		State: st,
 		Title: title,
 		Msg:   msg,
 	}
