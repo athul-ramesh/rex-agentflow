@@ -36,42 +36,44 @@ func Run(graphName string) error {
 	imgID := 1
 
 	var lastMod int64
+	var lastKey string
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
-	redraw := func() {
+	redraw := func(force bool) {
 		g, err := store.Load(graphName)
 		if err != nil {
 			return
 		}
-		width := max(ws.xpix, ws.cols*8)
-		height := max(ws.ypix, ws.rows*16)
-		img := Render(g, width, height)
+		widthPx, heightPx, scale := frameSize(ws)
+		key := fmt.Sprintf("%d:%d:%.2f:%d", widthPx, heightPx, scale, lastMod)
+		if !force && key == lastKey {
+			return
+		}
+		img := RenderScaled(g, widthPx, heightPx, scale)
 		kittyDelete(out, imgID)
 		kittyUpload(out, img, imgID)
 		kittyPlace(out, imgID, 0, img.Bounds().Dx(), img.Bounds().Dy(), ws.cols, ws.rows)
 		_ = out.Flush()
+		lastKey = key
 	}
 
 	if mod, err := store.FileModTime(graphName); err == nil {
 		lastMod = mod
 	}
-	redraw()
+	redraw(true)
 
 	for {
 		select {
 		case <-sig:
 			return nil
 		case <-ticker.C:
+			ws = getWinSize(fd)
 			mod, err := store.FileModTime(graphName)
-			if err != nil {
-				continue
-			}
-			if mod != lastMod {
+			if err == nil && mod != lastMod {
 				lastMod = mod
-				ws = getWinSize(fd)
-				redraw()
 			}
+			redraw(false)
 		}
 	}
 }
@@ -82,15 +84,46 @@ type winSize struct {
 
 func getWinSize(fd int) winSize {
 	ws, err := unix.IoctlGetWinsize(fd, unix.TIOCGWINSZ)
-	if err != nil || ws.Row == 0 {
-		return winSize{rows: 24, cols: 80, xpix: 640, ypix: 480}
+	if err != nil || ws.Row == 0 || ws.Col == 0 {
+		return winSize{rows: 24, cols: 80, xpix: 80 * 16, ypix: 24 * 34}
 	}
-	w := winSize{rows: int(ws.Row), cols: int(ws.Col), xpix: int(ws.Xpixel), ypix: int(ws.Ypixel)}
-	if w.xpix == 0 {
-		w.xpix = w.cols * 8
-		w.ypix = w.rows * 16
+	return normalizeWinSize(winSize{
+		rows: int(ws.Row), cols: int(ws.Col),
+		xpix: int(ws.Xpixel), ypix: int(ws.Ypixel),
+	})
+}
+
+func normalizeWinSize(w winSize) winSize {
+	if w.xpix == 0 || w.ypix == 0 {
+		// No pixel size reported: assume a Retina cell (same as rexpad).
+		w.xpix, w.ypix = w.cols*16, w.rows*34
+		return w
+	}
+	// Many ptys still advertise the historical 8×16 cell when HiDPI metrics
+	// never arrived. Treat that like a missing pixel size so we do not upload
+	// a 1x bitmap that Kitty then stretches across a Retina pane.
+	cellW, cellH := w.xpix/w.cols, w.ypix/w.rows
+	if cellW > 0 && cellH > 0 && cellW <= 8 && cellH <= 16 {
+		w.xpix, w.ypix = w.cols*16, w.rows*34
 	}
 	return w
+}
+
+// frameSize returns a whole-cell pixel frame and the layout scale.
+func frameSize(ws winSize) (widthPx, heightPx int, scale float64) {
+	if ws.cols <= 0 || ws.rows <= 0 {
+		return 320, 400, 1
+	}
+	cellW := ws.xpix / ws.cols
+	cellH := ws.ypix / ws.rows
+	if cellW <= 0 {
+		cellW = 16
+	}
+	if cellH <= 0 {
+		cellH = 34
+	}
+	ws.xpix, ws.ypix = cellW*ws.cols, cellH*ws.rows
+	return ws.xpix, ws.ypix, pickScale(0, ws)
 }
 
 // RenderGraph is used by tests to exercise the render path without a terminal.
@@ -106,7 +139,8 @@ func Preview(graphName string) error {
 	}
 	fd := int(os.Stdout.Fd())
 	ws := getWinSize(fd)
-	img := Render(g, max(ws.xpix, 320), max(ws.ypix, 200))
+	widthPx, heightPx, scale := frameSize(ws)
+	img := RenderScaled(g, widthPx, heightPx, scale)
 	out := bufio.NewWriter(os.Stdout)
 	kittyUpload(out, img, 1)
 	kittyPlace(out, 1, 0, img.Bounds().Dx(), img.Bounds().Dy(), ws.cols, ws.rows)

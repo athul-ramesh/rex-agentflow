@@ -21,7 +21,7 @@ func TestWriteAfterPNG(t *testing.T) {
 	if err := json.Unmarshal(data, &g); err != nil {
 		t.Fatal(err)
 	}
-	img := RenderGraph(g, 420, 560)
+	img := RenderScaled(g, 840, 1120, 2)
 	_ = os.MkdirAll("/tmp/agentflow-v1-polish", 0o755)
 	out := "/tmp/agentflow-v1-polish/after.png"
 	f, err := os.Create(out)
@@ -39,7 +39,7 @@ func TestDemoGraphTitleEllipsis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tp := &textPainter{fonts: fs}
+	tp := &textPainter{fonts: fs, scale: 1}
 	title := "Independently inspect this repository and explain its purpose, integrations (Cursor/Pi/Rex), and what the user-facing commands do."
 	lines := tp.wrapTitle(title, false, fontSize, 260, maxTitleLines)
 	if len(lines) > maxTitleLines {

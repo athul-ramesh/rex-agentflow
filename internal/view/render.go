@@ -10,9 +10,9 @@ import (
 )
 
 type palette struct {
-	bg, title, text, muted color.RGBA
+	bg, title, text, muted                    color.RGBA
 	working, blocked, finished, error, queued color.RGBA
-	divider, activeBg, check   color.RGBA
+	divider, activeBg, check                  color.RGBA
 }
 
 var darkPalette = palette{
@@ -50,6 +50,7 @@ func mix(a, b color.RGBA, t float64) color.RGBA {
 	return color.RGBA{l(a.R, b.R), l(a.G, b.G), l(a.B, b.B), 255}
 }
 
+// Layout constants are in points. RenderScaled multiplies by device scale.
 const (
 	marginL     = 12.0
 	marginR     = 12.0
@@ -63,13 +64,22 @@ const (
 	activeInset = 6.0
 )
 
-// Render draws the work graph into a new RGBA image.
+// Render draws at 1x (tests and simple callers).
 func Render(g graph.WorkGraph, width, height int) *image.RGBA {
+	return RenderScaled(g, width, height, 1)
+}
+
+// RenderScaled draws the work graph into width×height device pixels.
+// scale is device pixels per layout point (2 on a typical Retina pane).
+func RenderScaled(g graph.WorkGraph, width, height int, scale float64) *image.RGBA {
 	if width < 120 {
 		width = 320
 	}
 	if height < 80 {
 		height = 400
+	}
+	if scale < 1 {
+		scale = 1
 	}
 	fs, err := getFonts()
 	if err != nil {
@@ -82,10 +92,11 @@ func Render(g graph.WorkGraph, width, height int) *image.RGBA {
 	pal := darkPalette
 	draw.Draw(img, img.Bounds(), &image.Uniform{pal.bg}, image.Point{}, draw.Src)
 
-	tp := &textPainter{fonts: fs}
+	tp := &textPainter{fonts: fs, scale: scale}
 	rows := buildLayout(g)
-	contentW := float64(width) - marginL - marginR
+	contentW := float64(width)/scale - marginL - marginR
 	textLeft := marginL + textX
+	s := scale
 
 	y := marginTop
 
@@ -94,7 +105,7 @@ func Render(g graph.WorkGraph, width, height int) *image.RGBA {
 		case rowTitle:
 			tp.draw(img, row.Text, marginL, y+baselineOff, true, fontSize, pal.title, 0)
 			y += 10
-			fillRect(img, marginL, y+6, float64(width)-marginR, y+7, pal.divider)
+			fillRect(img, marginL*s, (y+6)*s, (float64(width)/scale-marginR)*s, (y+7)*s, pal.divider)
 			y += 24
 
 		case rowSection:
@@ -105,7 +116,7 @@ func Render(g graph.WorkGraph, width, height int) *image.RGBA {
 		case rowPlan, rowWorker:
 			gx := marginL + iconCenterX + float64(row.Depth)*depthIndent
 			tx := textLeft + float64(row.Depth)*depthIndent
-			maxW := contentW - float64(row.Depth)*depthIndent
+			maxW := contentW - textX - float64(row.Depth)*depthIndent
 
 			lines := tp.wrapTitle(row.Text, false, fontSize, maxW, maxTitleLines)
 			subH := 0.0
@@ -117,10 +128,13 @@ func Render(g graph.WorkGraph, width, height int) *image.RGBA {
 			cy := y + itemPitch/2 + extra/2
 
 			if row.Active {
-				fillRoundRect(img, marginL-activeInset, cy-itemPitch/2+2, float64(width)-marginR+activeInset, cy+itemPitch/2-2+extra+subH, 6, pal.activeBg)
+				fillRoundRect(img,
+					(marginL-activeInset)*s, (cy-itemPitch/2+2)*s,
+					(float64(width)/scale-marginR+activeInset)*s, (cy+itemPitch/2-2+extra+subH)*s,
+					6*s, pal.activeBg)
 			}
 
-			drawPhaseGlyph(img, pal, gx, cy, row.Phase, row.Progress)
+			drawPhaseGlyph(img, pal, gx*s, cy*s, row.Phase, row.Progress, s)
 
 			col := pal.text
 			if row.Kind == rowWorker {
@@ -147,7 +161,7 @@ func Render(g graph.WorkGraph, width, height int) *image.RGBA {
 
 		case rowFooter:
 			y += 10
-			fillRect(img, marginL, y, float64(width)-marginR, y+1, pal.divider)
+			fillRect(img, marginL*s, y*s, (float64(width)/scale-marginR)*s, (y+1)*s, pal.divider)
 			y += 12
 			tp.draw(img, row.Text, marginL, y+baselineOff, false, subSize, pal.muted, 0)
 			y += itemPitch

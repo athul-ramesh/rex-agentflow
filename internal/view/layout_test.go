@@ -45,7 +45,7 @@ func TestFitEllipsis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tp := &textPainter{fonts: fs}
+	tp := &textPainter{fonts: fs, scale: 1}
 	long := strings.Repeat("word ", 40)
 	shown, _, truncated := tp.fit(long, false, fontSize, 200)
 	if !truncated {

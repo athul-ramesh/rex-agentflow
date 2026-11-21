@@ -23,6 +23,14 @@ const (
 
 type textPainter struct {
 	fonts *fontSet
+	scale float64 // device pixels per point; 0 means 1
+}
+
+func (tp *textPainter) sc() float64 {
+	if tp.scale < 1 {
+		return 1
+	}
+	return tp.scale
 }
 
 func (tp *textPainter) measure(face font.Face, s string, track float64) float64 {
@@ -39,13 +47,15 @@ func (tp *textPainter) measure(face font.Face, s string, track float64) float64 
 	return float64(w) / 64
 }
 
+// draw paints s at (x,y) in layout points. size and maxW are also in points.
 func (tp *textPainter) draw(img *image.RGBA, s string, x, y float64, bold bool, size float64, col color.RGBA, maxW float64) {
 	s = strings.ReplaceAll(s, "\t", " ")
-	face := tp.fonts.face(bold, size)
-	track := tracking * size
+	sc := tp.sc()
+	face := tp.fonts.face(bold, size*sc)
+	track := tracking * size * sc
 	shown, _, _ := tp.fit(s, bold, size, maxW)
 	src := image.NewUniform(col)
-	dot := fixed.Point26_6{X: fixed.Int26_6(x * 64), Y: fixed.Int26_6(int64(y * 64))}
+	dot := fixed.Point26_6{X: fixed.Int26_6(x * sc * 64), Y: fixed.Int26_6(y * sc * 64)}
 	prev := rune(-1)
 	for _, c := range shown {
 		if prev >= 0 {
@@ -64,15 +74,17 @@ const ell = "…"
 
 func (tp *textPainter) fit(s string, bold bool, size float64, maxW float64) (shown string, kept int, truncated bool) {
 	s = strings.ReplaceAll(s, "\t", " ")
-	face := tp.fonts.face(bold, size)
-	track := tracking * size
-	if maxW <= 0 || tp.measure(face, s, track) <= maxW {
+	sc := tp.sc()
+	face := tp.fonts.face(bold, size*sc)
+	track := tracking * size * sc
+	limit := maxW * sc
+	if maxW <= 0 || tp.measure(face, s, track) <= limit {
 		return s, len(s), false
 	}
 	for len(s) > 0 {
 		_, sz := utf8.DecodeLastRuneInString(s)
 		s = s[:len(s)-sz]
-		if tp.measure(face, trimRightSpaces(s)+ell, track) <= maxW {
+		if tp.measure(face, trimRightSpaces(s)+ell, track) <= limit {
 			break
 		}
 	}
@@ -92,6 +104,7 @@ func trimRightSpaces(s string) string {
 }
 
 // wrapTitle breaks s into at most maxLines lines; overflow merges into the last line with an ellipsis.
+// maxW is in layout points.
 func (tp *textPainter) wrapTitle(s string, bold bool, size float64, maxW float64, maxLines int) []string {
 	if maxW <= 0 {
 		return []string{s}
@@ -100,6 +113,10 @@ func (tp *textPainter) wrapTitle(s string, bold bool, size float64, maxW float64
 	if len(words) == 0 {
 		return []string{""}
 	}
+	sc := tp.sc()
+	face := tp.fonts.face(bold, size*sc)
+	track := tracking * size * sc
+	limit := maxW * sc
 	var lines []string
 	cur := ""
 	for _, w := range words {
@@ -107,9 +124,7 @@ func (tp *textPainter) wrapTitle(s string, bold bool, size float64, maxW float64
 		if cur != "" {
 			trial = cur + " " + w
 		}
-		face := tp.fonts.face(bold, size)
-		track := tracking * size
-		if tp.measure(face, trial, track) <= maxW {
+		if tp.measure(face, trial, track) <= limit {
 			cur = trial
 			continue
 		}
