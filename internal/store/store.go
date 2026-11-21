@@ -87,7 +87,11 @@ func Save(name string, g *graph.WorkGraph) error {
 
 func Clear(name string) error {
 	_ = os.Remove(ViewerPath(name))
-	return os.Remove(GraphPath(name))
+	err := os.Remove(GraphPath(name))
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 func Modify(name string, harness string, fn func(*graph.WorkGraph) error) error {
