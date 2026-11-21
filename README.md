@@ -26,7 +26,7 @@ Confirm:
 agentflow --help
 ```
 
-State lives at `$XDG_STATE_HOME/agentflow/<name>.json` (default `~/.local/state/agentflow/`). The graph name is `$AGENTFLOW_GRAPH`, else `$REX_BLOCK`, else `default`. Override with `--graph NAME`.
+State lives at `$XDG_STATE_HOME/agentflow/<fileKey>.json` (default `~/.local/state/agentflow/`). Each **agent session** gets its own file: Cursor uses `conversation_id` else `session_id`; Claude, Devin, and Pi use `session_id`. `$REX_BLOCK` only influences where the Rex viewer splits, not the filename. Unpinned CLI commands (`show`, `get`, `clear`) resolve session id from a **shell queue** (`beforeShellExecution` hook), then `$AGENTFLOW_GRAPH`, then a unique **place** record, then `$REX_BLOCK`, then `default`. Pin any invocation with `--graph NAME`. Set `AGENTFLOW_STRICT=1` to exit 2 when no session id is available (instead of the fallback file). Set `AGENTFLOW_QUIET=1` to silence the stderr warning on fallback.
 
 ## One-time setup
 
@@ -44,7 +44,7 @@ Or one project only:
 cp hooks/cursor-hooks.json.example /path/to/project/.cursor/hooks.json
 ```
 
-Restart Cursor (or start a new agent) so hooks load. Each hook runs `agentflow hook`, reads one JSON event from stdin, updates the graph, and exits 0.
+Restart Cursor (or start a new agent) so hooks load. Each hook runs `agentflow hook`, peeks the session id from stdin, opens that session's graph, updates it, and exits 0. The example hooks include `sessionStart`, subagent/Task lifecycle, `stop`, and **`beforeShellExecution`** so a plain `agentflow show` in the agent shell resolves the same session id the hooks use (via the shell queue under `shellq/`).
 
 ### 2. Agent skill (so the agent opens the pane)
 
@@ -102,7 +102,7 @@ ln -sfn ~/.cursor/skills/agentflow ~/.pi/agent/skills/agentflow
 ```
 
 - `AGENTFLOW_BIN` overrides the binary (default `~/.local/bin/agentflow`).
-- When set, `AGENTFLOW_GRAPH` is passed as `--graph` on every ingest call.
+- On session start, Pi sets `AGENTFLOW_GRAPH` to the Pi session id (unless you pinned a custom graph name). Ingest lines carry `session_id`; unpinned `ingest` routes each line to that file. Only a deliberate user pin passes `--graph` on ingest.
 - TUI sessions always track. Headless / RPC / print modes track when `REX_BLOCK`, `AGENTFLOW_GRAPH`, or `AGENTFLOW_ENABLE=1` is set.
 - Hardened Pi hosts need `agentflow` on PATH and FS grants for `~/.local/bin`, this repo’s `bin/`, and `~/.local/state/agentflow`. Restart Pi after changing those.
 - Sync delegation: `tool_call` → `worker.start`, `tool_result` → `worker.stop`. Background launch (`async: true`) emits `tool.return` on launch completion and leaves the worker working.

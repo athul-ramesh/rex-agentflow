@@ -1,6 +1,16 @@
 {
   "version": 1,
   "hooks": {
+    "sessionStart": [
+      {
+        "command": "agentflow hook"
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": "agentflow hook"
+      }
+    ],
     "subagentStart": [
       {
         "command": "agentflow hook"

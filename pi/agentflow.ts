@@ -30,20 +30,44 @@ function resolveAgentflowBin(): string {
 	return join(homedir(), ".local", "bin", "agentflow");
 }
 
-function ingestArgs(): string[] {
-	const args = ["ingest"];
-	const graph = process.env.AGENTFLOW_GRAPH;
-	if (typeof graph === "string" && graph.trim()) {
-		args.unshift("--graph", graph.trim());
+function sessionPin(sid: string): "user" | "session" | "none" {
+	const cur = (process.env.AGENTFLOW_GRAPH ?? "").trim();
+	const block = (process.env.REX_BLOCK ?? "").trim();
+	if (!sid) {
+		return "none";
 	}
-	return args;
+	const userPin =
+		cur !== "" && cur !== sid && cur !== block && cur !== "default";
+	if (userPin) {
+		return "user";
+	}
+	return "session";
+}
+
+function applySessionEnv(sid: string): void {
+	if (sessionPin(sid) === "session" && sid) {
+		process.env.AGENTFLOW_GRAPH = sid;
+	}
+}
+
+function ingestArgs(sid: string): string[] {
+	if (sessionPin(sid) === "user") {
+		const cur = process.env.AGENTFLOW_GRAPH!.trim();
+		return ["--graph", cur, "ingest"];
+	}
+	return ["ingest"];
 }
 
 /** Fire-and-forget: never block Pi tool execution on agentflow. */
 function emitContract(payload: Record<string, unknown>): void {
-	const line = JSON.stringify({ v: CONTRACT_VERSION, harness: HARNESS, ...payload });
+	const sid = boundSessionId;
+	const body =
+		sid && payload.session_id === undefined
+			? { ...payload, session_id: sid }
+			: payload;
+	const line = JSON.stringify({ v: CONTRACT_VERSION, harness: HARNESS, ...body });
 	const bin = resolveAgentflowBin();
-	const child = spawn(bin, ingestArgs(), {
+	const child = spawn(bin, ingestArgs(sid), {
 		stdio: ["pipe", "ignore", "ignore"],
 		env: process.env,
 	});
@@ -224,6 +248,7 @@ export default function (pi) {
 		const sid = sessionIdFrom(ctx);
 		if (sid) {
 			boundSessionId = sid;
+			applySessionEnv(sid);
 			emitContract({ type: "session.bind", session_id: sid });
 		}
 	});
