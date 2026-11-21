@@ -28,6 +28,16 @@ func TranslateHook(raw []byte) ([]contract.Event, error) {
 	}
 
 	switch name {
+	case "sessionStart":
+		title := p.Model
+		if title == "" {
+			title = "Cursor session"
+		}
+		return []contract.Event{{
+			V: contract.Version, Type: contract.EventSessionBind, Harness: Harness,
+			SessionID: base.SessionID, Title: title,
+		}}, nil
+
 	case "subagentStart":
 		title, msg := subagentTitleMsg(p.SubagentType, p.Task)
 		id := p.SubagentID
