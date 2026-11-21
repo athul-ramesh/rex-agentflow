@@ -20,10 +20,14 @@ func Apply(g *graph.WorkGraph, ev contract.Event) []graph.Diagnostic {
 	}
 
 	scope := ev.ScopeID()
-	if scope != "" && g.RunID != "" && g.RunID != scope {
-		d := diag("stale_session", "event session "+scope+" does not match graph run "+g.RunID)
-		appendDiag(g, d)
-		return []graph.Diagnostic{d}
+	if scope != "" {
+		if g.RunID == "" {
+			g.RunID = scope
+		} else if g.RunID != scope {
+			d := diag("stale_session", "event session "+scope+" does not match graph run "+g.RunID)
+			appendDiag(g, d)
+			return []graph.Diagnostic{d}
+		}
 	}
 
 	recordAliases(g, ev)

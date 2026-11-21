@@ -103,12 +103,8 @@ func rootRecord(g graph.WorkGraph) Record {
 			break
 		}
 	}
-	st := RootStatus(g)
-	if st == "done" {
-		st = "done"
-	}
 	return Record{
-		State: st,
+		State: RootStatus(g),
 		Title: title,
 		Msg:   msg,
 	}

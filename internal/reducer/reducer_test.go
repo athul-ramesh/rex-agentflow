@@ -116,6 +116,28 @@ func TestStaleSessionSkipped(t *testing.T) {
 	}
 }
 
+func TestFirstScopedEventBindsRunID(t *testing.T) {
+	g := graph.New("test")
+	Apply(&g, contract.Event{
+		V: contract.Version, Type: contract.EventWorkerStart,
+		SessionID: "sess-1",
+		Worker:    contract.WorkerRef{ID: "w1", Kind: "explore"},
+	})
+	if g.RunID != "sess-1" {
+		t.Fatalf("run_id %q", g.RunID)
+	}
+	Apply(&g, contract.Event{
+		V: contract.Version, Type: contract.EventWorkerStop,
+		SessionID: "sess-2",
+		Worker:    contract.WorkerRef{ID: "w1"},
+		Status:    "completed",
+	})
+	_, w := g.FindWorker("w1")
+	if w.State != graph.PhaseWorking {
+		t.Fatalf("stale stop should not finish worker, got %s", w.State)
+	}
+}
+
 func TestTwoSameKindReverseCompletion(t *testing.T) {
 	g := graph.New("test")
 	Apply(&g, contract.Event{V: contract.Version, Type: contract.EventWorkerStart,
