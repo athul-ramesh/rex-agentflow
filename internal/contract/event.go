@@ -79,11 +79,8 @@ func Validate(ev Event) error {
 	return nil
 }
 
-func (ev Event) ScopeID() string {
-	if ev.SessionID != "" {
-		return ev.SessionID
-	}
-	return ev.RunID
+func (ev Event) SessionKey() string {
+	return strings.TrimSpace(ev.SessionID)
 }
 
 func SanitizeID(id string) string {

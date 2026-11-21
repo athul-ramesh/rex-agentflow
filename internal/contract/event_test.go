@@ -11,7 +11,7 @@ func TestParseValidWorkerStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ev.Type != EventWorkerStart || ev.ScopeID() != "s1" {
+	if ev.Type != EventWorkerStart || ev.SessionKey() != "s1" {
 		t.Fatalf("%+v", ev)
 	}
 }

@@ -19,24 +19,24 @@ func Apply(g *graph.WorkGraph, ev contract.Event) []graph.Diagnostic {
 		g.Harness = ev.Harness
 	}
 
-	scope := ev.ScopeID()
-	if scope != "" {
-		if g.RunID == "" {
-			g.RunID = scope
-		} else if g.RunID != scope {
-			d := diag("stale_session", "event session "+scope+" does not match graph run "+g.RunID)
+	sid := ev.SessionKey()
+	if sid != "" {
+		if g.SessionID == "" {
+			g.SessionID = sid
+		} else if g.SessionID != sid {
+			d := diag("stale_session", "event session "+sid+" does not match graph session "+g.SessionID)
 			appendDiag(g, d)
 			return []graph.Diagnostic{d}
 		}
+	}
+	if ev.RunID != "" {
+		g.RunID = ev.RunID
 	}
 
 	recordAliases(g, ev)
 
 	switch ev.Type {
 	case contract.EventSessionBind:
-		if scope != "" {
-			g.RunID = scope
-		}
 		if ev.Title != "" {
 			g.Title = graph.TruncateOneLine(ev.Title, 80)
 		}

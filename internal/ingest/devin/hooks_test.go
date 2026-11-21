@@ -24,8 +24,8 @@ func TestSessionStartBinds(t *testing.T) {
 	if err := ApplyHook(&g, loadFixture(t, "session_start.json")); err != nil {
 		t.Fatal(err)
 	}
-	if g.RunID != "devin-sess-1" {
-		t.Fatalf("run_id=%q", g.RunID)
+	if g.SessionID != "devin-sess-1" {
+		t.Fatalf("session_id=%q", g.SessionID)
 	}
 	if g.Title != "startup" {
 		t.Fatalf("title=%q", g.Title)
@@ -40,8 +40,8 @@ func TestUserPromptMainWorking(t *testing.T) {
 	if err := ApplyHook(&g, loadFixture(t, "user_prompt.json")); err != nil {
 		t.Fatal(err)
 	}
-	if g.RunID != "devin-sess-1" {
-		t.Fatalf("run_id=%q", g.RunID)
+	if g.SessionID != "devin-sess-1" {
+		t.Fatalf("session_id=%q", g.SessionID)
 	}
 	if g.Title != "Ship devin hooks" {
 		t.Fatalf("title=%q", g.Title)
@@ -59,8 +59,8 @@ func TestSecondPromptSameSession(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if g.RunID != "devin-sess-1" {
-		t.Fatalf("run_id=%q", g.RunID)
+	if g.SessionID != "devin-sess-1" {
+		t.Fatalf("session_id=%q", g.SessionID)
 	}
 	if g.Title != "Add tests" {
 		t.Fatalf("title=%q", g.Title)
@@ -69,7 +69,7 @@ func TestSecondPromptSameSession(t *testing.T) {
 
 func TestStopSessionEnd(t *testing.T) {
 	g := graph.New(Harness)
-	g.RunID = "devin-sess-1"
+	g.SessionID = "devin-sess-1"
 	if err := ApplyHook(&g, loadFixture(t, "stop.json")); err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestStopSessionEnd(t *testing.T) {
 
 func TestSessionEnd(t *testing.T) {
 	g := graph.New(Harness)
-	g.RunID = "devin-sess-1"
+	g.SessionID = "devin-sess-1"
 	if err := ApplyHook(&g, loadFixture(t, "session_end.json")); err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestPermissionRequestNoOp(t *testing.T) {
 		t.Fatalf("want noop, got %+v", evs)
 	}
 	g := graph.New(Harness)
-	g.RunID = "devin-sess-1"
+	g.SessionID = "devin-sess-1"
 	before := len(g.Workers)
 	if err := ApplyHook(&g, loadFixture(t, "permission_request.json")); err != nil {
 		t.Fatal(err)
