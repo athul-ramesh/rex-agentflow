@@ -62,6 +62,8 @@ const (
 	textX       = 21.0
 	depthIndent = 14.0
 	activeInset = 6.0
+	activePadY  = 5.0
+	rowGap      = 4.0
 )
 
 // Render draws at 1x (tests and simple callers).
@@ -124,13 +126,17 @@ func RenderScaled(g graph.WorkGraph, width, height int, scale float64) *image.RG
 				subH = subLineH
 			}
 			extra := float64(len(lines)-1) * wrapLineH
-			rowH := itemPitch + extra + subH
-			cy := y + itemPitch/2 + extra/2
+			pad := 0.0
+			if row.Active {
+				pad = activePadY
+			}
+			rowH := itemPitch + extra + subH + pad*2 + rowGap
+			cy := y + pad + itemPitch/2 + extra/2
 
 			if row.Active {
 				fillRoundRect(img,
-					(marginL-activeInset)*s, (cy-itemPitch/2+2)*s,
-					(float64(width)/scale-marginR+activeInset)*s, (cy+itemPitch/2-2+extra+subH)*s,
+					(marginL-activeInset)*s, (y)*s,
+					(float64(width)/scale-marginR+activeInset)*s, (y+itemPitch+extra+subH+pad*2)*s,
 					6*s, pal.activeBg)
 			}
 
@@ -149,7 +155,7 @@ func RenderScaled(g graph.WorkGraph, width, height int, scale float64) *image.RG
 			}
 
 			if row.Sub != "" {
-				sy := line0Y + float64(len(lines))*wrapLineH - 6
+				sy := line0Y + float64(len(lines)-1)*wrapLineH + subLineH
 				tp.draw(img, row.Sub, tx, sy, false, subSize, pal.muted, maxW)
 			}
 

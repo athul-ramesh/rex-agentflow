@@ -42,12 +42,15 @@ func TestDemoGraphTitleEllipsis(t *testing.T) {
 	tp := &textPainter{fonts: fs, scale: 1}
 	title := "Independently inspect this repository and explain its purpose, integrations (Cursor/Pi/Rex), and what the user-facing commands do."
 	lines := tp.wrapTitle(title, false, fontSize, 260, maxTitleLines)
-	if len(lines) > maxTitleLines {
-		t.Fatalf("lines %d", len(lines))
+	if len(lines) != 1 {
+		t.Fatalf("lines %d want 1", len(lines))
 	}
-	last := lines[len(lines)-1]
-	if !strings.HasSuffix(last, ell) {
-		t.Fatalf("expected ellipsis on wrapped title, got %q", last)
+	if !strings.HasSuffix(lines[0], ell) {
+		t.Fatalf("expected ellipsis on title, got %q", lines[0])
+	}
+	body := strings.TrimSuffix(lines[0], ell)
+	if strings.HasSuffix(body, " comma") || strings.HasSuffix(body, "purpos") {
+		t.Fatalf("mid-word cut: %q", lines[0])
 	}
 }
 

@@ -18,7 +18,7 @@ const (
 	subSize       = 12.0
 	tracking      = -0.011
 	baselineOff   = 5.0
-	maxTitleLines = 2
+	maxTitleLines = 1 // workers use short labels; plans share the same paint path
 )
 
 type textPainter struct {
@@ -89,6 +89,9 @@ func (tp *textPainter) fit(s string, bold bool, size float64, maxW float64) (sho
 		}
 	}
 	s = trimRightSpaces(s)
+	if i := strings.LastIndex(s, " "); i > len(s)/2 {
+		s = trimRightSpaces(s[:i])
+	}
 	return s + ell, len(s), true
 }
 
@@ -149,12 +152,8 @@ func (tp *textPainter) wrapTitle(s string, bold bool, size float64, maxW float64
 }
 
 func workerTextColor(p palette, ph graph.Phase) color.RGBA {
-	switch ph {
-	case graph.PhaseFinished:
+	if ph == graph.PhaseFinished {
 		return p.muted
-	case graph.PhaseError:
-		return mix(p.error, p.text, 0.45)
-	default:
-		return p.text
 	}
+	return p.text
 }

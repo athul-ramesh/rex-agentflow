@@ -42,10 +42,7 @@ func ApplyHook(g *graph.WorkGraph, raw []byte) error {
 
 	switch name {
 	case "subagentStart":
-		title := p.Task
-		if title == "" {
-			title = p.SubagentType
-		}
+		title, msg := subagentTitleMsg(p.SubagentType, p.Task)
 		id := p.SubagentID
 		if id == "" {
 			id = p.ToolCall
@@ -57,6 +54,7 @@ func ApplyHook(g *graph.WorkGraph, raw []byte) error {
 			ID:    id,
 			Title: title,
 			Kind:  p.SubagentType,
+			Msg:   msg,
 			State: graph.PhaseWorking,
 		})
 		root := g.EnsureMainWorker()
@@ -146,6 +144,30 @@ func inferEvent(p hookPayload) string {
 
 func isTaskTool(name string) bool {
 	return strings.EqualFold(name, "Task") || strings.EqualFold(name, "task")
+}
+
+// subagentTitleMsg keeps the worker title short: kind (or a short task) up front,
+// with long Task prompts demoted to msg.
+func subagentTitleMsg(kind, task string) (title, msg string) {
+	kind = strings.TrimSpace(kind)
+	task = strings.TrimSpace(task)
+	if task == "" {
+		return kind, ""
+	}
+	if !isLongTask(task) {
+		return task, ""
+	}
+	if kind != "" {
+		return kind, graph.TruncateOneLine(task, 100)
+	}
+	return graph.TruncateOneLine(task, 40), ""
+}
+
+func isLongTask(s string) bool {
+	if len(s) > 48 {
+		return true
+	}
+	return strings.Count(s, " ") >= 8
 }
 
 func findStopTarget(g *graph.WorkGraph, id, kind, task string) *graph.Worker {

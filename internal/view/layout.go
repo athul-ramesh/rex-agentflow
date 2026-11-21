@@ -3,6 +3,7 @@ package view
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/athulramesh/rex-agentflow/internal/graph"
 )
@@ -57,11 +58,11 @@ func buildLayout(g graph.WorkGraph) []layoutRow {
 
 func appendWorkers(rows *[]layoutRow, all []graph.Worker, level []graph.Worker, depth int) {
 	for _, w := range level {
-		sub := workerSub(w)
+		text := workerLabel(w)
 		*rows = append(*rows, layoutRow{
 			Kind:     rowWorker,
-			Text:     w.Title,
-			Sub:      sub,
+			Text:     text,
+			Sub:      workerDetail(w, text),
 			Phase:    w.State,
 			Depth:    depth,
 			Active:   w.State == graph.PhaseWorking,
@@ -72,17 +73,65 @@ func appendWorkers(rows *[]layoutRow, all []graph.Worker, level []graph.Worker, 
 	}
 }
 
-func workerSub(w graph.Worker) string {
-	if w.Kind == "" && w.Msg == "" {
-		return ""
+const (
+	promptTitleRunes = 48
+	detailRunes      = 72
+)
+
+// workerLabel prefers a short kind when the stored title is a long Task prompt.
+func workerLabel(w graph.Worker) string {
+	kind := strings.TrimSpace(w.Kind)
+	title := strings.TrimSpace(w.Title)
+	if kind != "" && (title == "" || isLongPrompt(title) || strings.EqualFold(title, kind)) {
+		return kind
 	}
-	if w.Msg != "" {
-		if w.Kind != "" {
-			return w.Kind + " · " + w.Msg
+	if title != "" {
+		return title
+	}
+	if kind != "" {
+		return kind
+	}
+	return "worker"
+}
+
+func workerDetail(w graph.Worker, label string) string {
+	var parts []string
+	title := strings.TrimSpace(w.Title)
+	if title != "" && !strings.EqualFold(title, label) {
+		parts = append(parts, softTruncate(title, detailRunes))
+	}
+	msg := strings.TrimSpace(w.Msg)
+	if msg != "" && !strings.EqualFold(msg, label) {
+		trunc := softTruncate(msg, detailRunes)
+		if len(parts) == 0 || parts[0] != trunc {
+			parts = append(parts, trunc)
 		}
-		return w.Msg
 	}
-	return w.Kind
+	return strings.Join(parts, " · ")
+}
+
+func isLongPrompt(s string) bool {
+	if utf8.RuneCountInString(s) > promptTitleRunes {
+		return true
+	}
+	return strings.Count(s, " ") >= 8
+}
+
+func softTruncate(s string, maxRunes int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if maxRunes <= 0 || utf8.RuneCountInString(s) <= maxRunes {
+		return s
+	}
+	runes := []rune(s)
+	cut := runes[:maxRunes]
+	trimmed := strings.TrimRight(string(cut), " ,.;:-")
+	if i := strings.LastIndex(trimmed, " "); i > len(trimmed)/2 {
+		trimmed = strings.TrimRight(trimmed[:i], " ,.;:-")
+	}
+	if trimmed == "" {
+		trimmed = string(cut)
+	}
+	return trimmed + "…"
 }
 
 func footerText(g graph.WorkGraph) string {
