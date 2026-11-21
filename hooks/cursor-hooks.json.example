@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "hooks": {
+    "subagentStart": [
+      {
+        "command": "agentflow hook"
+      }
+    ],
+    "subagentStop": [
+      {
+        "command": "agentflow hook"
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "agentflow hook",
+        "matcher": "Task"
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "agentflow hook",
+        "matcher": "Task"
+      }
+    ],
+    "postToolUseFailure": [
+      {
+        "command": "agentflow hook",
+        "matcher": "Task"
+      }
+    ],
+    "stop": [
+      {
+        "command": "agentflow hook"
+      }
+    ]
+  }
+}
