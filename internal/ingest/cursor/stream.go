@@ -75,9 +75,44 @@ func toolNameFromPayload(raw json.RawMessage) string {
 	return ""
 }
 
-func ProcessStreamLocked(name string, r io.Reader, onChange func() error) error {
+// ProcessStreamLocked routes each NDJSON line to a graph file keyed by session id.
+// pinned is the --graph flag (empty if unset). onReady runs once with the latched raw id for --show.
+func ProcessStreamLocked(pinned, fallback string, r io.Reader, onReady func(graphKey string) error) error {
+	pinned = strings.TrimSpace(pinned)
+	fallback = strings.TrimSpace(fallback)
+	if fallback == "" {
+		fallback = "default"
+	}
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	var held [][]byte
+	latched := pinned
+	readyCalled := false
+
+	flushLine := func(line []byte, target string) error {
+		target = strings.TrimSpace(target)
+		if target == "" {
+			target = "default"
+		}
+		evs, ok := TranslateStreamLine(line)
+		if !ok || len(evs) == 0 {
+			return nil
+		}
+		return store.WithGraph(target, StreamHarness, func(g *graph.WorkGraph) error {
+			reducer.ApplyAll(g, evs)
+			return nil
+		})
+	}
+
+	callReady := func(id string) error {
+		if readyCalled || onReady == nil {
+			return nil
+		}
+		readyCalled = true
+		return onReady(id)
+	}
+
 	for sc.Scan() {
 		line := bytes.TrimSpace(sc.Bytes())
 		if len(line) == 0 {
@@ -87,17 +122,62 @@ func ProcessStreamLocked(name string, r io.Reader, onChange func() error) error 
 		if !ok || len(evs) == 0 {
 			continue
 		}
-		if err := store.WithGraph(name, StreamHarness, func(g *graph.WorkGraph) error {
-			reducer.ApplyAll(g, evs)
-			return nil
-		}); err != nil {
+		sid := strings.TrimSpace(evs[0].SessionID)
+		if latched == "" {
+			if sid != "" {
+				latched = sid
+				for _, h := range held {
+					if err := flushLine(h, latched); err != nil {
+						return err
+					}
+				}
+				held = nil
+				if err := callReady(latched); err != nil {
+					return err
+				}
+				if err := flushLine(line, latched); err != nil {
+					return err
+				}
+				continue
+			}
+			held = append(held, append([]byte(nil), line...))
+			continue
+		}
+		target := latched
+		if sid != "" && sid != latched {
+			target = sid
+		}
+		if err := flushLine(line, target); err != nil {
 			return err
 		}
-		if onChange != nil {
-			if err := onChange(); err != nil {
+	}
+	if err := sc.Err(); err != nil {
+		return err
+	}
+	if latched == "" {
+		latched = fallback
+		for _, h := range held {
+			if err := flushLine(h, latched); err != nil {
 				return err
 			}
 		}
+		if err := callReady(latched); err != nil {
+			return err
+		}
+		return nil
 	}
-	return sc.Err()
+	for _, h := range held {
+		if err := flushLine(h, latched); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func SessionIDFromStreamLine(line []byte) string {
+	evs, ok := TranslateStreamLine(line)
+	if !ok || len(evs) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(evs[0].SessionID)
 }

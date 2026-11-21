@@ -21,7 +21,7 @@ func loadFixture(t *testing.T, name string) []byte {
 
 func TestTwoParallelSubagentsByAgentID(t *testing.T) {
 	g := graph.New(Harness)
-	g.RunID = "sess-parallel"
+	g.SessionID = "sess-parallel"
 	for _, name := range []string{
 		"subagent_start_explore.json",
 		"subagent_start_general.json",
@@ -52,8 +52,8 @@ func TestSecondPromptSameSessionID(t *testing.T) {
 	if err := ApplyHook(&g, first); err != nil {
 		t.Fatal(err)
 	}
-	if g.RunID != "sess-repeat" {
-		t.Fatalf("after first prompt run_id=%q", g.RunID)
+	if g.SessionID != "sess-repeat" {
+		t.Fatalf("after first prompt session_id=%q", g.SessionID)
 	}
 	if g.Title != "Add claude hook adapter" {
 		t.Fatalf("title after first: %q", g.Title)
@@ -61,8 +61,8 @@ func TestSecondPromptSameSessionID(t *testing.T) {
 	if err := ApplyHook(&g, second); err != nil {
 		t.Fatal(err)
 	}
-	if g.RunID != "sess-repeat" {
-		t.Fatalf("after second prompt run_id=%q", g.RunID)
+	if g.SessionID != "sess-repeat" {
+		t.Fatalf("after second prompt session_id=%q", g.SessionID)
 	}
 	if g.Title != "Wire main.go next" {
 		t.Fatalf("title after second: %q", g.Title)
@@ -71,7 +71,7 @@ func TestSecondPromptSameSessionID(t *testing.T) {
 
 func TestSessionEnd(t *testing.T) {
 	g := graph.New(Harness)
-	g.RunID = "sess-shutdown"
+	g.SessionID = "sess-shutdown"
 	if err := ApplyHook(&g, loadFixture(t, "session_end.json")); err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestStopTurnSettleNotSessionEnd(t *testing.T) {
 		t.Fatalf("got %+v", evs)
 	}
 	g := graph.New(Harness)
-	g.RunID = "s1"
+	g.SessionID = "s1"
 	if err := ApplyHook(&g, raw); err != nil {
 		t.Fatal(err)
 	}

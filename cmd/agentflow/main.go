@@ -8,12 +8,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/athulramesh/rex-agentflow/internal/contract"
 	"github.com/athulramesh/rex-agentflow/internal/graph"
-	"github.com/athulramesh/rex-agentflow/internal/ingest/claude"
+	"github.com/athulramesh/rex-agentflow/internal/identity"
 	"github.com/athulramesh/rex-agentflow/internal/ingest/cursor"
-	"github.com/athulramesh/rex-agentflow/internal/ingest/devin"
 	"github.com/athulramesh/rex-agentflow/internal/osc7501"
 	"github.com/athulramesh/rex-agentflow/internal/pane"
 	"github.com/athulramesh/rex-agentflow/internal/reducer"
@@ -22,7 +22,7 @@ import (
 )
 
 func main() {
-	graphFlag := flag.String("graph", "", "graph name (default: $AGENTFLOW_GRAPH, then $REX_BLOCK, then default)")
+	graphFlag := flag.String("graph", "", "graph name (pin with --graph NAME; default resolves from session id)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: agentflow [--graph NAME] COMMAND\n\n")
 		fmt.Fprintf(os.Stderr, "Commands: show, hide, view, get, set, clear, emit-osc, hook, claude-hook, devin-hook, stream, ingest\n")
@@ -33,17 +33,57 @@ func main() {
 		flag.Usage()
 		os.Exit(2)
 	}
-	name := resolveGraph(*graphFlag)
 	cmd := flag.Arg(0)
+	eventCmd := isEventCmd(cmd)
+
+	var name string
+	var resolved identity.Resolved
+	if eventCmd {
+		// Event commands resolve after reading stdin (hooks) or per-line (ingest/stream).
+		if cmd != "hook" && cmd != "claude-hook" && cmd != "devin-hook" && cmd != "ingest" && cmd != "stream" {
+			var err error
+			resolved = identity.Resolve(resolveEventInput(*graphFlag, "", ""))
+			name, err = finalizeResolve(resolved)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(2)
+			}
+		}
+	} else {
+		var err error
+		resolved = identity.Resolve(resolveCLIInput(*graphFlag))
+		if resolved.Ambiguous && cmd != "show" {
+			fmt.Fprintf(os.Stderr, "ambiguous session: %s\n", strings.Join(resolved.IDs, " "))
+			os.Exit(2)
+		}
+		name, err = finalizeResolve(resolved)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		registerPlaceForCLI(resolved, name)
+	}
 
 	switch cmd {
 	case "show":
+		if resolved.Ambiguous {
+			showFlags := flag.NewFlagSet("show", flag.ExitOnError)
+			below := showFlags.Bool("below", false, "split below instead of right")
+			ratio := showFlags.Int("ratio", 30, "pane size percent")
+			_ = showFlags.Parse(flag.Args()[1:])
+			self, _ := os.Executable()
+			if err := showAmbiguous(resolved.IDs, *below, *ratio, self); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			return
+		}
 		showFlags := flag.NewFlagSet("show", flag.ExitOnError)
 		below := showFlags.Bool("below", false, "split below instead of right")
 		ratio := showFlags.Int("ratio", 30, "pane size percent")
 		_ = showFlags.Parse(flag.Args()[1:])
 		self, _ := os.Executable()
-		if err := pane.Show(pane.ShowOptions{Below: *below, Ratio: *ratio, Graph: name, Binary: self}); err != nil {
+		if err := showOne(name, *below, *ratio, self); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -58,14 +98,14 @@ func main() {
 			os.Exit(1)
 		}
 	case "get":
-		getFlags := flag.NewFlagSet("get", flag.ExitOnError)
-		asJSON := getFlags.Bool("json", false, "print JSON")
-		_ = getFlags.Parse(flag.Args()[1:])
 		g, err := store.Load(name)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+		getFlags := flag.NewFlagSet("get", flag.ExitOnError)
+		asJSON := getFlags.Bool("json", false, "print JSON")
+		_ = getFlags.Parse(flag.Args()[1:])
 		if *asJSON {
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
@@ -119,14 +159,15 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		if err := store.WithGraph(name, cursor.Harness, func(g *graph.WorkGraph) error {
-			return cursor.ApplyHook(g, raw)
-		}); err != nil {
+		if err := handleCursorHook(*graphFlag, raw); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 		if os.Getenv("AGENTFLOW_OSC") == "1" {
-			g, _ := store.Load(name)
+			conv, sess, _, _ := cursor.Peek(raw)
+			r := identity.Resolve(resolveEventInput(*graphFlag, conv, sess))
+			id, _ := finalizeResolve(r)
+			g, _ := store.Load(id)
 			_ = osc7501.WriteGraph(os.Stdout, g)
 		}
 	case "claude-hook":
@@ -135,9 +176,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		if err := store.WithGraph(name, claude.Harness, func(g *graph.WorkGraph) error {
-			return claude.ApplyHook(g, raw)
-		}); err != nil {
+		if err := handleClaudeHook(*graphFlag, raw); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -147,9 +186,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		if err := store.WithGraph(name, devin.Harness, func(g *graph.WorkGraph) error {
-			return devin.ApplyHook(g, raw)
-		}); err != nil {
+		if err := handleDevinHook(*graphFlag, raw); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -157,14 +194,27 @@ func main() {
 		streamFlags := flag.NewFlagSet("stream", flag.ExitOnError)
 		doShow := streamFlags.Bool("show", false, "open viewer pane once if inside Rex")
 		_ = streamFlags.Parse(flag.Args()[1:])
-		shown := false
-		if err := cursor.ProcessStreamLocked(name, os.Stdin, func() error {
-			if *doShow && !shown && os.Getenv("REX_SERVER") != "" {
-				shown = true
-				self, _ := os.Executable()
-				_ = pane.Show(pane.ShowOptions{Graph: name, Binary: self, Ratio: 30})
+		pinned := strings.TrimSpace(*graphFlag)
+		fb := identity.Resolve(resolveEventInput(*graphFlag, "", ""))
+		fallback, err := finalizeResolve(fb)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		if err := cursor.ProcessStreamLocked(pinned, fallback, os.Stdin, func(latched string) error {
+			if !*doShow || os.Getenv("REX_SERVER") == "" {
+				return nil
 			}
-			return nil
+			r := identity.Resolve(resolveEventInput("", latched, latched))
+			if pinned != "" {
+				r = identity.Resolve(resolveEventInput(pinned, "", ""))
+			}
+			id, err := finalizeResolve(r)
+			if err != nil {
+				return err
+			}
+			self, _ := os.Executable()
+			return showOne(id, false, 30, self)
 		}); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -172,6 +222,7 @@ func main() {
 	case "ingest":
 		sc := bufio.NewScanner(os.Stdin)
 		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		var lastPayloadID string
 		for sc.Scan() {
 			line := bytes.TrimSpace(sc.Bytes())
 			if len(line) == 0 {
@@ -182,7 +233,22 @@ func main() {
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
 			}
-			if err := store.WithGraph(name, ev.Harness, func(g *graph.WorkGraph) error {
+			sid := strings.TrimSpace(ev.SessionID)
+			if sid != "" {
+				lastPayloadID = sid
+			}
+			in := resolveEventInput(*graphFlag, "", sid)
+			if sid == "" && lastPayloadID != "" {
+				in.SessionID = lastPayloadID
+			}
+			resolved := identity.Resolve(in)
+			lineID, err := finalizeResolve(resolved)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(2)
+			}
+			lineID = applyAlias(lineID)
+			if err := store.WithGraph(lineID, ev.Harness, func(g *graph.WorkGraph) error {
 				reducer.Apply(g, ev)
 				return nil
 			}); err != nil {
@@ -200,17 +266,17 @@ func main() {
 	}
 }
 
-func resolveGraph(flag string) string {
-	if flag != "" {
-		return flag
+func isEventCmd(cmd string) bool {
+	switch cmd {
+	case "hook", "claude-hook", "devin-hook", "stream", "ingest":
+		return true
+	default:
+		return false
 	}
-	if v := os.Getenv("AGENTFLOW_GRAPH"); v != "" {
-		return v
-	}
-	if v := os.Getenv("REX_BLOCK"); v != "" {
-		return v
-	}
-	return "default"
+}
+
+func showOne(name string, below bool, ratio int, binary string) error {
+	return pane.Show(pane.ShowOptions{Below: below, Ratio: ratio, Graph: name, Binary: binary})
 }
 
 func printHuman(g graph.WorkGraph) {

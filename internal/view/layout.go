@@ -180,6 +180,9 @@ func titleOrDefault(g graph.WorkGraph) string {
 	if g.Title != "" {
 		return g.Title
 	}
+	if g.SessionID != "" {
+		return "session " + truncateRunID(g.SessionID, 24)
+	}
 	if g.RunID != "" {
 		return "run " + truncateRunID(g.RunID, 24)
 	}

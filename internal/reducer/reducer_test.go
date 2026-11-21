@@ -103,27 +103,31 @@ func TestAliasCorrelation(t *testing.T) {
 
 func TestStaleSessionSkipped(t *testing.T) {
 	g := graph.New("test")
-	g.RunID = "run-a"
+	g.SessionID = "sess-a"
 	Apply(&g, contract.Event{
 		V: contract.Version, Type: contract.EventSessionBind,
-		SessionID: "run-b",
+		SessionID: "sess-b",
 	})
-	if g.RunID != "run-a" {
-		t.Fatalf("mutated run_id to %q", g.RunID)
+	if g.SessionID != "sess-a" {
+		t.Fatalf("mutated session_id to %q", g.SessionID)
 	}
 	if len(g.Diagnostics) != 1 || g.Diagnostics[0].Code != "stale_session" {
 		t.Fatalf("diags %+v", g.Diagnostics)
 	}
 }
 
-func TestFirstScopedEventBindsRunID(t *testing.T) {
+func TestFirstScopedEventBindsSessionID(t *testing.T) {
 	g := graph.New("test")
 	Apply(&g, contract.Event{
 		V: contract.Version, Type: contract.EventWorkerStart,
 		SessionID: "sess-1",
+		RunID:     "turn-1",
 		Worker:    contract.WorkerRef{ID: "w1", Kind: "explore"},
 	})
-	if g.RunID != "sess-1" {
+	if g.SessionID != "sess-1" {
+		t.Fatalf("session_id %q", g.SessionID)
+	}
+	if g.RunID != "turn-1" {
 		t.Fatalf("run_id %q", g.RunID)
 	}
 	Apply(&g, contract.Event{

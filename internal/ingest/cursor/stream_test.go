@@ -24,7 +24,10 @@ func TestStreamRunIDAndResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g.RunID != "sess-99" && g.RunID != "run-99" {
+	if g.SessionID != "sess-99" {
+		t.Fatalf("session_id %q", g.SessionID)
+	}
+	if g.RunID != "run-99" {
 		t.Fatalf("run_id %q", g.RunID)
 	}
 	if n == 0 {

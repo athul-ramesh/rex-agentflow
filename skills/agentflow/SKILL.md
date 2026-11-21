@@ -9,8 +9,14 @@ description: Keep a live work graph of the plan and subagent workers in a Rex si
 next to your own pane. Hooks update the graph from Cursor agent events. You
 open the pane and seed or edit the plan with the CLI.
 
-Each agent pane gets its own graph automatically (keyed by `$REX_BLOCK`, or
-`$AGENTFLOW_GRAPH`, or `default`). Override with `--graph NAME`.
+Each **agent session** gets its own graph file (Cursor: `conversation_id` else
+`session_id`; other harnesses: `session_id`). Two agents in the same Rex pane
+stay on two files and two viewer sidecars. `$REX_BLOCK` is only the Rex split
+anchor, not the graph name. Run `agentflow show` with no flag; hooks and Pi set
+`AGENTFLOW_GRAPH`, and Cursor's `beforeShellExecution` hook fills the shell
+queue so CLI commands match hook routing. Pin with `--graph NAME`. Use
+`AGENTFLOW_STRICT=1` if missing session ids should fail instead of using the
+fallback file.
 
 ## Start of a task
 

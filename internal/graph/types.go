@@ -42,7 +42,8 @@ type Diagnostic struct {
 
 type WorkGraph struct {
 	Version     int               `json:"version"`
-	RunID       string            `json:"run_id"`
+	SessionID   string            `json:"session_id,omitempty"`
+	RunID       string            `json:"run_id,omitempty"`
 	Harness     string            `json:"harness"`
 	Title       string            `json:"title,omitempty"`
 	Plan        []PlanItem        `json:"plan,omitempty"`
